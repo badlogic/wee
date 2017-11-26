@@ -1,5 +1,4 @@
 # Wee
-
 Wee is a tiny programming environment for teaching purposes. Wee is composed of:
 
 1. An instruction set architecture (ISA) with a corresponding virtual machine (**Wee Machine**).
@@ -7,6 +6,26 @@ Wee is a tiny programming environment for teaching purposes. Wee is composed of:
 3. A higher level language (**Wee Lang**) that is an extension of the assembly language
    making common tasks, like defining types, functions, locals, etc., more comfortable.
 4. A browser-based development environment with code editing, compilation and debugging tools (**Wee DE**).
+
+**Table of Contents**
+- [Wee Machine](#)
+	- [Instruction Set](#)
+		- [Register encoding](#)
+		- [Arithmetic Operations](#)
+		- [Bit-wise Operations](#)
+		- [Jumps & Branching](#)
+		- [Memory operations](#)
+		- [Stack & Call Operations](#)
+		- [Ports](#)
+		- [Halting](#)
+	- [Peripherals](#)
+		- [Keyboard](#)
+		- [Mouse](#)
+		- [Graphics Card](#)
+		- [Sound Card](#)
+		- [Networking Card](#)
+	- [BIOS](#)
+	- [Bootup & Memory Layout](#)
 
 ## Wee Machine
 The Wee Machine resembles the architecture of real-world 32-bit machines like x86 and ARM. The wee machine is composed of the following components:
@@ -181,17 +200,23 @@ The following port operations are available:
 Wee machine can be halted by a simple instruction with the instruction `0x00000000` or `halt` in assembly.
 
 ### Peripherals
-Wee machine simulates a system with a keyboard, mouse, graphics card, sound card and networking card. These peripherals are heavily simplified to make working with them simple enough for beginners.
+Wee machine simulates a system with a keyboard, mouse, graphics card, sound card and networking card. These peripherals are heavily simplified to make working with them simple enough for beginners. The following sections describe the peripheral capabilities and their respective port protocols.
 
 #### Keyboard
+TBD
 #### Mouse
+TBD
 #### Graphics Card
+TBD
 #### Sound Card
+TBD
 #### Networking Card
+TBD
 
 ### BIOS
-Wee Machine comes with a minimal BIOS that makes interacting with peripherals easier. The BIOS is composed of functions that are co-located in memory with the user code.
+Wee Machine comes with a minimal BIOS that makes interacting with peripherals easier. The BIOS is composed of functions that are co-located in memory with the user code. The assembler knows the addresses of each BIOS function so a programmer can directly reference the function labels in their assembly program. The following sections describe the functions provided by the BIOS.
+
+TBD
 
 ### Bootup & Memory Layout
-
-When Wee machine boots up, it reserves the memory area `0xff0000` to `0xffffff` for the stack, the area `0xfb1800` to `0xfeffff` for the memory mapped video memory (320x200 pixels, 32-bit RGBA), and the area `(0xfb1800 - BIOS code size)` to `0xfb17ff` for the BIOS code. Next, the program is loaded into memory at `0x000000` and executed.
+When Wee machine boots up, it reserves the memory area `0xff0000` to `0xffffff` for the stack, the area `0xfb1800` to `0xfeffff` for the memory mapped video memory (320x200 pixels, 32-bit RGBA), and the area `(0xfb1800 - BIOS code size)` to `0xfb17ff` for the BIOS code. Next, the program is loaded into memory at `0x000000` and executed. The BIOS can manage the unused memory between the program code & data and the BIOS code and provides functions to allocate and deallocate memory in this memory area. Programmers can choose to manage that memory themselves.
