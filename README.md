@@ -45,15 +45,13 @@ The Wee Machine resembles the architecture of real-world 32-bit machines like x8
 	6. Networking card
 5. A **Basic Input/Output System (BIOS)**
 
-Wee Machine implements the Von Neumann architecture: code & data are stored and read from the same memory. This allows self-modifying code.
-
-Wee Machine uses little endian, the word size is 32-bit.
+Wee Machine implements the Von Neumann architecture: code & data are stored and read from the same memory. This allows self-modifying code. Wee Machine uses little endian, the word size is 32-bit.
 
 ### Instruction Set
 Instructions are 32-bit in size, with 0-3 operands encoded in the instruction. Memory access instructions allow the specification of byte-offsets. The opcode of an instruction is always encoded in the first 6 bits.
 
 #### Register encoding
-Wee machine has 16 registers, `r0`-`r13`, `pc` and `sp`. When encoding a register in an instruction, the register is referred to by an index. Registers `r0` to `r13` are indexed from 0 to 13. Register `pc` has index 14, and register `sp` has index 15.
+Wee machine has 16 registers, `r0-r13`, `pc` and `sp`. When encoding a register in an instruction, the register is referred to by an index. Registers `r0` to `r13` are indexed from 0 to 13. Register `pc` has index 14, and register `sp` has index 15.
 
 #### Arithmetic Operations
 Wee machine supports 32-bit integer and floating point arithmetic. All arithmetic instructions operate only on registers and have the following format:
