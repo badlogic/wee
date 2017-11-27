@@ -7,26 +7,6 @@ Wee is a tiny educational programming environment. Wee is composed of:
    making common tasks, like defining types, functions, locals, etc., more comfortable.
 4. A browser-based development environment with code editing, compilation and debugging tools (**Wee DE**).
 
-**Table of Contents**
-- [Wee Machine](#)
-	- [Instruction Set](#)
-		- [Register encoding](#)
-		- [Arithmetic Operations](#)
-		- [Bit-wise Operations](#)
-		- [Jumps & Branching](#)
-		- [Memory operations](#)
-		- [Stack & Call Operations](#)
-		- [Ports](#)
-		- [Halting](#)
-	- [Peripherals](#)
-		- [Keyboard](#)
-		- [Mouse](#)
-		- [Graphics Card](#)
-		- [Sound Card](#)
-		- [Networking Card](#)
-	- [BIOS](#)
-	- [Bootup & Memory Layout](#)
-
 ## Wee Machine
 The Wee Machine resembles the architecture of real-world 32-bit machines like x86 and ARM. The Wee Machine is composed of the following components:
 
@@ -122,11 +102,11 @@ The following instructions are supported:
 | ------ | -------- | --------- |
 | 0x17   | `jump <target address>` | Jumps to the specified address. |
 | 0x18   | `jump_equal op1, <target address>` | Jumps to the specified address if the operands of the comparison, the result of which is stored in `op1`, were equal |
-| 0x19   | `jump_not_equal op1, <target address>` | Jumps to the specified address if the operands of the comparison, the result is stored in `op1`, were not equal |
-| 0x1a   | `jump_less op1, <target address>` | Jumps to the specified address if the first operand of the comparison, the result is stored in `op1`, was less than the second operand |
-| 0x1b   | `jump_greater op1, <target address>` | Jumps to the specified address if the first operand of the comparison, the result is stored in `op1`, was greater than the second operand |
-| 0x1c   | `jump_less_equal op1, <target address>` | Jumps to the specified address if the first operand of the comparison, the result is stored in `op1`, was less or equal to the second operand |
-| 0x1d   | `jump_greater_equal op1, <target address>` | Jumps to the specified address if the first operand of the comparison, the result is stored in `op1`, was greater or equal to the second operand |
+| 0x19   | `jump_not_equal op1, <target address>` | Jumps to the specified address if the operands of the comparison, the result of which is stored in `op1`, were not equal |
+| 0x1a   | `jump_less op1, <target address>` | Jumps to the specified address if the first operand of the comparison, the result of which is stored in `op1`, was less than the second operand |
+| 0x1b   | `jump_greater op1, <target address>` | Jumps to the specified address if the first operand of the comparison, the result of which is stored in `op1`, was greater than the second operand |
+| 0x1c   | `jump_less_equal op1, <target address>` | Jumps to the specified address if the first operand of the comparison, the result of which is stored in `op1`, was less or equal to the second operand |
+| 0x1d   | `jump_greater_equal op1, <target address>` | Jumps to the specified address if the first operand of the comparison, the result of which is stored in `op1`, was greater or equal to the second operand |
 
 #### Memory operations
 Wee Machine has 16 megabytes of byte-addressable memory in which both code and data are stored, plus 16 registers that can hold data and addresses. Wee Machine provides instructions to load and store data from and to registers and memory.
