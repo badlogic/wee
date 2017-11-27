@@ -204,7 +204,7 @@ TBD
 TBD
 #### Random number generator
 TBD
-### High precision timer
+#### High precision timer
 TBD
 
 ### BIOS
