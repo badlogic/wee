@@ -1,24 +1,198 @@
 var wee;
 (function (wee) {
+    var TokenStream = (function () {
+        function TokenStream(tokens) {
+            this.tokens = tokens;
+            this.index = 0;
+        }
+        ;
+        TokenStream.prototype.next = function () {
+            return this.tokens[this.index++];
+        };
+        TokenStream.prototype.peek = function () {
+            return this.tokens[this.index];
+        };
+        TokenStream.prototype.lookAhead = function (types) {
+            if (types instanceof Array) {
+                if (this.tokens.length - this.index < types.length)
+                    return false;
+                for (var i = this.index, j = 0; i < this.index + types.length; i++, j++) {
+                    var type = types[j];
+                    if (!(this.tokens[i].type == type))
+                        return false;
+                }
+                return true;
+            }
+            else {
+                if (this.index == this.tokens.length)
+                    return false;
+                return this.tokens[i].type == types;
+            }
+        };
+        TokenStream.prototype.hasLeft = function (tokens) {
+            return tokens <= this.tokens.length - this.index;
+        };
+        return TokenStream;
+    }());
     var Assembler = (function () {
         function Assembler() {
         }
         Assembler.prototype.assemble = function (source) {
             var tokens = new wee.Tokenizer().tokenize(source);
+            var instructions = this.parse(tokens);
+            var code = this.emit(instructions);
+            return code;
         };
         Assembler.prototype.parse = function (tokens) {
             var instructions = new Array();
+            var diagnostics = new Array();
+            var stream = new TokenStream(tokens);
+            var labels = {};
+            var instructionToLabel = {};
+            while (true) {
+                var token = stream.next();
+                if (token.type == wee.TokenType.EndOfFile) {
+                    break;
+                }
+                if (token.type == wee.TokenType.Identifier) {
+                    if (!stream.lookAhead(wee.TokenType.Colon)) {
+                        var otherToken = stream.next();
+                        diagnostics.push(new wee.Diagnostic(wee.Severity.Error, otherToken.range, "Expected a colon (:) after the label " + token.value + ", got " + otherToken.value));
+                        break;
+                    }
+                    stream.next();
+                    var label = new Label(token, instructions.length);
+                    if (labels[token.value]) {
+                        var otherLabel = labels[token.value];
+                        diagnostics.push(new wee.Diagnostic(wee.Severity.Error, token.range, "Label '" + token.value + " already defined on line " + otherLabel.token.range.start.line + "."));
+                        break;
+                    }
+                    else {
+                        labels[token.value] = label;
+                    }
+                    instructionToLabel[label.index] = label;
+                    continue;
+                }
+                if (token.value == "byte" || token.value == "short" || token.value == "integer" || token.value == "float" || token.value == "string") {
+                    if (!stream.hasLeft(1)) {
+                        diagnostics.push(new wee.Diagnostic(wee.Severity.Error, token.range, "Data definition is missing a value."));
+                        break;
+                    }
+                    var literal = stream.next();
+                    if ((token.value == "byte" || token.value == "short" || token.value == "integer") && literal.type != wee.TokenType.IntegerLiteral) {
+                        diagnostics.push(new wee.Diagnostic(wee.Severity.Error, token.range, "Defining " + token.value + " data requires an integer value (123, 0xff, 0b1101), got " + literal.value + "."));
+                        break;
+                    }
+                    if (token.value == "float" && literal.type != wee.TokenType.FloatLiteral) {
+                        diagnostics.push(new wee.Diagnostic(wee.Severity.Error, token.range, "Defining " + token.value + " data requires a float value (123.456), got " + literal.value + "."));
+                        break;
+                    }
+                    if (token.value == "string" && literal.type != wee.TokenType.StringLiteral) {
+                        diagnostics.push(new wee.Diagnostic(wee.Severity.Error, token.range, "Defining " + token.value + " data requires a string value (\"Hello world\"), got " + literal.value + "."));
+                        break;
+                    }
+                    instructions.push(new Data(token, literal));
+                    continue;
+                }
+                if (token.value == "halt") {
+                    instructions.push(new Halt(token));
+                    continue;
+                }
+                if (token.value == "cos_float" || token.value == "sin_float" ||
+                    token.value == "sqrt_float" || token.value == "pow_float" ||
+                    token.value == "convert_float_int" || token.value == "convert_int_float") {
+                    if (!stream.lookAhead([wee.TokenType.Register, wee.TokenType.Register])) {
+                        diagnostics.push(new wee.Diagnostic(wee.Severity.Error, token.range, "Arithmetic instruction " + token.value + " requires 2 register operands."));
+                        break;
+                    }
+                    var op1 = stream.next();
+                    var op2 = stream.next();
+                    instructions.push(new ArithmeticInstruction(token, op1, op2, null));
+                }
+                if (token.value == "add" || token.value == "sub" || token.value == "mul" || token.value == "div" || token.value == "div_unsigned" ||
+                    token.value == "remainder" || token.value == "remainder_unsigned" ||
+                    token.value == "add_float" || token.value == "sub_float" || token.value == "mul_float" || token.value == "div_float" ||
+                    token.value == "atan2_float" ||
+                    token.value == "cmp" || token.value == "cmp_unsigned" || token.value == "fcmp") {
+                    if (!stream.lookAhead([wee.TokenType.Register, wee.TokenType.Register, wee.TokenType.Register])) {
+                        diagnostics.push(new wee.Diagnostic(wee.Severity.Error, token.range, "Arithmetic instruction " + token.value + " requires 3 register operands."));
+                        break;
+                    }
+                    instructions.push(new ArithmeticInstruction(token, stream.next(), stream.next(), stream.next()));
+                }
+                if (token.value == "not") {
+                    if (!stream.lookAhead([wee.TokenType.Register, wee.TokenType.Register])) {
+                        diagnostics.push(new wee.Diagnostic(wee.Severity.Error, token.range, "Bit-wise instruction " + token.value + " requires 2 register operands."));
+                        break;
+                    }
+                    instructions.push(new BitwiseInstruction(token, stream.next(), stream.next(), null));
+                }
+                if (token.value == "and" || token.value == "or" || token.value == "xor" ||
+                    token.value == "shift_left" || token.value == "shift_right") {
+                    if (!stream.lookAhead([wee.TokenType.Register, wee.TokenType.Register, wee.TokenType.Register])) {
+                        diagnostics.push(new wee.Diagnostic(wee.Severity.Error, token.range, "Bit-wise instruction " + token.value + " requires 2 register operands."));
+                        break;
+                    }
+                    instructions.push(new BitwiseInstruction(token, stream.next(), stream.next(), stream.next()));
+                }
+                diagnostics.push(new wee.Diagnostic(wee.Severity.Error, token.range, "Expected a label, data definition or instruction, got " + token.value));
+            }
             return instructions;
+        };
+        Assembler.prototype.emit = function (instructions) {
         };
         return Assembler;
     }());
     wee.Assembler = Assembler;
-    var Instruction = (function () {
-        function Instruction() {
+    var Label = (function () {
+        function Label(token, index) {
+            this.token = token;
+            this.index = index;
         }
-        return Instruction;
+        ;
+        return Label;
     }());
-    wee.Instruction = Instruction;
+    wee.Label = Label;
+    ;
+    var Data = (function () {
+        function Data(type, value) {
+            this.type = type;
+            this.value = value;
+        }
+        ;
+        return Data;
+    }());
+    wee.Data = Data;
+    var Halt = (function () {
+        function Halt(token) {
+            this.token = token;
+        }
+        ;
+        return Halt;
+    }());
+    wee.Halt = Halt;
+    var ArithmeticInstruction = (function () {
+        function ArithmeticInstruction(operation, operand1, operand2, operand3) {
+            this.operation = operation;
+            this.operand1 = operand1;
+            this.operand2 = operand2;
+            this.operand3 = operand3;
+        }
+        ;
+        return ArithmeticInstruction;
+    }());
+    wee.ArithmeticInstruction = ArithmeticInstruction;
+    var BitwiseInstruction = (function () {
+        function BitwiseInstruction(operation, operand1, operand2, operand3) {
+            this.operation = operation;
+            this.operand1 = operand1;
+            this.operand2 = operand2;
+            this.operand3 = operand3;
+        }
+        ;
+        return BitwiseInstruction;
+    }());
+    wee.BitwiseInstruction = BitwiseInstruction;
 })(wee || (wee = {}));
 var wee;
 (function (wee) {
@@ -327,6 +501,7 @@ var wee;
     (function (tests) {
         function runTests() {
             testLexer();
+            testParser();
         }
         tests.runTests = runTests;
         function testLexer() {
@@ -337,6 +512,15 @@ var wee;
             catch (e) {
                 var diagnostic = e;
                 console.log(diagnostic.toString());
+            }
+        }
+        function testParser() {
+            try {
+                var assembler = new wee.Assembler();
+                console.log(assembler.parse(new wee.Tokenizer().tokenize("\n\t\t\t\thelloWorld: string \"Hello world\"\n\t\t\t\tmove 10, r0\n\t\t\t\tloop:\n\t\t\t\t\tmove r1, 1\n\t\t\t\t\tsub r0, r1, r0\n\t\t\t\t\tcmp r0, 0\n\t\t\t\t\tjump_not_equal loop\n\t\t\t\t# end loop\n\t\t\t\thalt\n\t\t\t")));
+            }
+            catch (e) {
+                console.log(e);
             }
         }
     })(tests = wee.tests || (wee.tests = {}));

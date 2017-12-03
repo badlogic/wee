@@ -1,6 +1,7 @@
 module wee.tests {
 	export function runTests () {
-		testLexer();			
+		testLexer();
+		testParser();		
 	}
 
 	function testLexer () {
@@ -24,6 +25,25 @@ module wee.tests {
 		} catch (e) {
 			let diagnostic = e as Diagnostic;
 			console.log(diagnostic.toString());
+		}
+	}
+
+	function testParser () {
+		try {
+			let assembler = new wee.Assembler();
+			console.log(assembler.parse(new wee.Tokenizer().tokenize(`
+				helloWorld: string "Hello world"
+				move 10, r0
+				loop:
+					move r1, 1
+					sub r0, r1, r0
+					cmp r0, 0
+					jump_not_equal loop
+				# end loop
+				halt
+			`)));
+		} catch (e) {
+			console.log(e);
 		}
 	}
 }

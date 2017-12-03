@@ -1,9 +1,44 @@
 declare module wee {
+    interface StringMap<V> {
+        [key: string]: V;
+    }
+    interface IndexedMap<V> {
+        [key: number]: V;
+    }
     class Assembler {
         assemble(source: string): void;
-        parse(tokens: Array<Token>): Array<Instruction>;
+        parse(tokens: Array<Token>): Array<Instruction> | Array<Diagnostic>;
+        emit(instructions: Array<Instruction>): void;
     }
-    class Instruction {
+    class Label {
+        token: Token;
+        index: number;
+        constructor(token: Token, index: number);
+    }
+    interface Instruction {
+    }
+    class Data implements Instruction {
+        type: Token;
+        value: Token;
+        constructor(type: Token, value: Token);
+    }
+    class Halt implements Instruction {
+        token: Token;
+        constructor(token: Token);
+    }
+    class ArithmeticInstruction implements Instruction {
+        operation: Token;
+        operand1: Token;
+        operand2: Token;
+        operand3: Token;
+        constructor(operation: Token, operand1: Token, operand2: Token, operand3: Token);
+    }
+    class BitwiseInstruction implements Instruction {
+        operation: Token;
+        operand1: Token;
+        operand2: Token;
+        operand3: Token;
+        constructor(operation: Token, operand1: Token, operand2: Token, operand3: Token);
     }
 }
 declare module wee {

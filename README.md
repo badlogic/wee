@@ -54,8 +54,7 @@ These instructions are supported:
 | 0x03   | `mul op1, op2, op3` | Multiplies the 32-bit integers in `op1` and `op2` and stores the result in `op3`. |
 | 0x04   | `div op1, op2, op3` | Divides the 32-bit signed integer in `op1` by `op2` and stores the result in `op3`. |
 | 0x05   | `div_unsigned op1, op2, op3` | Divides the 32-bit unsigned integer in `op1` by `op2` and stores the result in `op3`. |
-| 0x06   | `remainder op1, op2, op3` | Divides the 32-bit signed integer in `op1` by `op2` and stores the
-remainder in `op3`. The remainder has the sign of the dividend `op1` |
+| 0x06   | `remainder op1, op2, op3` | Divides the 32-bit signed integer in `op1` by `op2` and stores the remainder in `op3`. The remainder has the sign of the dividend `op1` |
 | 0x07   | `remainder_unsigned op1, op2, op3` | Divides the 32-bit unsigned integer in `op1` by `op2` and stores the remainder in `op3`. The remainder has the sign of the dividend `op1` |
 | 0x08   | `add_float op1, op2, op3` | Adds the 32-bit floats in `op1` and `op2` and stores the result in `op3`. |
 | 0x09   | `sub_float op1, op2, op3` | Subtracts the 32-bit floats in `op1` and `op2` and stores the result in `op3`. |
