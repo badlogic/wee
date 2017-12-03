@@ -1,5 +1,9 @@
 module wee.tests {
 	export function runTests () {
+		testLexer();			
+	}
+
+	function testLexer () {
 		try {
 			let tokenizer = new wee.Tokenizer();
 			console.log(tokenizer.tokenize(`

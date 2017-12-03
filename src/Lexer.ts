@@ -35,8 +35,7 @@ module wee {
 			if (char == "\n") {
 				this.line++;
 				this.column = 1;
-			}
-			console.log(this.line + ":" + this.column + ":" + char);
+			}			
 			return char;
 		}
 

@@ -126,7 +126,6 @@ var wee;
                 this.line++;
                 this.column = 1;
             }
-            console.log(this.line + ":" + this.column + ":" + char);
             return char;
         };
         CharacterStream.prototype.startRange = function () {
@@ -327,6 +326,10 @@ var wee;
     var tests;
     (function (tests) {
         function runTests() {
+            testLexer();
+        }
+        tests.runTests = runTests;
+        function testLexer() {
             try {
                 var tokenizer = new wee.Tokenizer();
                 console.log(tokenizer.tokenize("\n\t\t\t\tSTRING: \"This is a test.\\nWith a new line.\"\n\t\t\t\tINTEGER: 234234\n\t\t\t\tNEGATIVEINTEGER: -234234\n\t\t\t\tFLOAT: 2.3423\n\t\t\t\tNEGATIVEFLOAT: -324.3242\n\t\t\t\tBINARY: 0b0110101\n\t\t\t\tHEX: 0xffeeff\n\n\t\t\t\t# This is a comment\n\t\t\t\tload LABEL, r0\n\t\t\t\tmove 123,\n\t\t\t\t# eol comment\n\t\t\t\t_41546546"));
@@ -336,7 +339,6 @@ var wee;
                 console.log(diagnostic.toString());
             }
         }
-        tests.runTests = runTests;
     })(tests = wee.tests || (wee.tests = {}));
 })(wee || (wee = {}));
 var wee;
