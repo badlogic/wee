@@ -21,16 +21,17 @@ declare module wee {
         length(): number;
     }
     enum Severity {
-        Debug = 0,
-        Info = 1,
-        Warning = 2,
-        Error = 3,
+        Debug = "Debug",
+        Info = "Info",
+        Warning = "Warning",
+        Error = "Error",
     }
     class Diagnostic {
         severity: Severity;
         range: Range;
         message: string;
         constructor(severity: Severity, range: Range, message: string);
+        toString(): string;
     }
 }
 declare module wee {
@@ -40,6 +41,7 @@ declare module wee {
         StringLiteral = "StringLiteral",
         Identifier = "Identifier",
         Opcode = "Opcode",
+        Keyword = "Keyword",
         Register = "Register",
         Colon = "Colon",
         Coma = "Coma",
@@ -53,6 +55,8 @@ declare module wee {
     }
     class Tokenizer {
         private isDigit(char);
+        private isHexDigit(char);
+        private isBinaryDigit(char);
         private isAlpha(char);
         private isWhitespace(char);
         private getIdentifierType(identifier);
