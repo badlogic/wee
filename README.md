@@ -61,11 +61,16 @@ remainder in `op3`. The remainder has the sign of the dividend `op1` |
 | 0x09   | `sub_float op1, op2, op3` | Subtracts the 32-bit floats in `op1` and `op2` and stores the result in `op3`. |
 | 0x0a   | `mul_float op1, op2, op3` | Multiplies the 32-bit floats in `op1` and `op2` and stores the result in `op3`. |
 | 0x0b   | `div_float op1, op2, op3` | Divides the 32-bit float in `op1` by `op2` and stores the result in `op3`. |
-| 0x0c   | `convert_int_float op1, op2` | Converts the 32-bit signed integer in `op1` to float and stores the result in `op2` |
-| 0x0d   | `convert_float_int op1, op2` | Converts the 32-bit float in `op1` to a 32-bit signed integer, truncating the decimal portion, and stores the result in `op2` |
-| 0x0e   | `cmp op1, op2, op3` | Compares the 32-bit signed integer in `op1` to `op2` and stores the result in `op3`. The result will be 0 if `op1` == `op2`, 1 if `op1` > `op2` and -1 (`0xffffffff`) if `op1` < `op2`. The result can be used with the jump instructions. |
-| 0x0f   | `cmp_unsigned op1, op2, op3` | Compares the 32-bit unsigned integer in `op1` to `op2` and stores the result in `op3`. The result will be 0 if `op1` == `op2`, 1 if `op1` > `op2` and -1 (`0xffffffff`) if `op1` < `op2`. The result can be used with the jump instructions. |
-| 0x10   | `fcmp op1, op2, op3` | Compares the 32-bit float in `op1` to `op2` and stores the result in `op3`. The result will be 0 if `op1` == `op2`, 1 if `op1` > `op2` and -1 (`0xffffffff`) if `op1` < `op2`. The result can be used with the jump instructions. |
+| 0x0c   | `cos_float op1, op2` | Calculates the cosine of the angle given in radians in `op1` and stores the result in `op2` |
+| 0x0d   | `sin_float op1, op2` | Calculates the sine of the angle given in radians in `op1` and stores the result in `op2` |
+| 0x0e   | `atan2_float op1, op2, op2` | Calculates the angle of the vector (x, y) stored in `op1`, `op2` relative to the x-axis and stores the result in `op3` |
+| 0x0f   | `sqrt_float op1, op2` | Calculates the square root of the float in `op1` and stores the result in `op2` |
+| 0x10   | `pow_float op1, op2` | Calculates the value of `op1` raised by the exponent in `op2` and stores the result in r3 |
+| 0x11   | `convert_int_float op1, op2` | Converts the 32-bit signed integer in `op1` to float and stores the result in `op2` |
+| 0x12   | `convert_float_int op1, op2` | Converts the 32-bit float in `op1` to a 32-bit signed integer, truncating the decimal portion, and stores the result in `op2` |
+| 0x13   | `cmp op1, op2, op3` | Compares the 32-bit signed integer in `op1` to `op2` and stores the result in `op3`. The result will be 0 if `op1` == `op2`, 1 if `op1` > `op2` and -1 (`0xffffffff`) if `op1` < `op2`. The result can be used with the jump instructions. |
+| 0x14   | `cmp_unsigned op1, op2, op3` | Compares the 32-bit unsigned integer in `op1` to `op2` and stores the result in `op3`. The result will be 0 if `op1` == `op2`, 1 if `op1` > `op2` and -1 (`0xffffffff`) if `op1` < `op2`. The result can be used with the jump instructions. |
+| 0x15   | `fcmp op1, op2, op3` | Compares the 32-bit float in `op1` to `op2` and stores the result in `op3`. The result will be 0 if `op1` == `op2`, 1 if `op1` > `op2` and -1 (`0xffffffff`) if `op1` < `op2`. The result can be used with the jump instructions. |
 
 
 *Note*: Underflow, overflow and division by zero are not reported. Floating point operations should follow the IEEE 754 standard. Conversions between float and int may result in undefined values if the precision is exceeded. All the nastiness of `NaN`s and infinities apply. Rounding modes TBD.
@@ -81,32 +86,32 @@ The following instructions are supported:
 
 | Opcode | Assembly | Semantics |
 | ------ | -------- | --------- |
-| 0x11   | `not op1, op2` | Inverts the bits in `op1` and stores the result in `op2` |
-| 0x12   | `and op1, op2, op3` | Performs a bit-wise and of `op1` and `op2` and stores the result in `op3` |
-| 0x13   | `or op1, op2, op3` | Performs a bit-wise or of `op1` and `op2` and stores the result in `op3` |
-| 0x14   | `xor op1, op2, op3` | Performs a bit-wise exclusive or of `op1` and `op2` and stores the result in `op3` |
-| 0x15   | `shift_left op1, op2, op3` | Shifts the bits in `op1` to the left by the number of bits specified in `op2` and stores the result in `op3` |
-| 0x16   | `shift_right op1, op2, op3` | Shifts the bits in `op1` to the right by number of bits specified in `op2` and stores the result in `op3` |
+| 0x16   | `not op1, op2` | Inverts the bits in `op1` and stores the result in `op2` |
+| 0x17   | `and op1, op2, op3` | Performs a bit-wise and of `op1` and `op2` and stores the result in `op3` |
+| 0x18   | `or op1, op2, op3` | Performs a bit-wise or of `op1` and `op2` and stores the result in `op3` |
+| 0x19   | `xor op1, op2, op3` | Performs a bit-wise exclusive or of `op1` and `op2` and stores the result in `op3` |
+| 0x1a   | `shift_left op1, op2, op3` | Shifts the bits in `op1` to the left by the number of bits specified in `op2` and stores the result in `op3` |
+| 0x1b   | `shift_right op1, op2, op3` | Shifts the bits in `op1` to the right by number of bits specified in `op2` and stores the result in `op3` |
 
 #### Jumps & Branching
 Wee Machine supports a variety of jumps, either directly or based on the result of a `cmp` or `fcmp`
-instruction. All jump target addresses are relative to the jump instruction's address, and are encoded in the instruction. Jump instructions have the following format:
+instruction. All jump target addresses, except for `jmp`, are relative to the jump instruction's address, and are encoded in the instruction. Jump instructions have the following format:
 
-| bits 0-5 | bits 6-9 | bits 10-31 |
-| -------- | -------- | --------  |
-| Opcode   | Register (op1) | Target address |
+| bits 0-5 | bits 6-9 | bits 10-31 | bits 32-64 |
+| -------- | -------- | --------  | -------- |
+| Opcode   | Register (op1) | Target address | word2
 
 The following instructions are supported:
 
 | Opcode | Assembly | Semantics |
 | ------ | -------- | --------- |
-| 0x17   | `jump <target address>` | Jumps to the specified address. |
-| 0x18   | `jump_equal op1, <target address>` | Jumps to the specified address if the operands of the comparison, the result of which is stored in `op1`, were equal |
-| 0x19   | `jump_not_equal op1, <target address>` | Jumps to the specified address if the operands of the comparison, the result of which is stored in `op1`, were not equal |
-| 0x1a   | `jump_less op1, <target address>` | Jumps to the specified address if the first operand of the comparison, the result of which is stored in `op1`, was less than the second operand |
-| 0x1b   | `jump_greater op1, <target address>` | Jumps to the specified address if the first operand of the comparison, the result of which is stored in `op1`, was greater than the second operand |
-| 0x1c   | `jump_less_equal op1, <target address>` | Jumps to the specified address if the first operand of the comparison, the result of which is stored in `op1`, was less or equal to the second operand |
-| 0x1d   | `jump_greater_equal op1, <target address>` | Jumps to the specified address if the first operand of the comparison, the result of which is stored in `op1`, was greater or equal to the second operand |
+| 0x1c   | `jump word2` | Jumps to the specified address in `word2` |
+| 0x1d   | `jump_equal op1, <target address>` | Jumps to the specified address if the operands of the comparison, the result of which is stored in `op1`, were equal |
+| 0x1e   | `jump_not_equal op1, <target address>` | Jumps to the specified address if the operands of the comparison, the result of which is stored in `op1`, were not equal |
+| 0x1f   | `jump_less op1, <target address>` | Jumps to the specified address if the first operand of the comparison, the result of which is stored in `op1`, was less than the second operand |
+| 0x20   | `jump_greater op1, <target address>` | Jumps to the specified address if the first operand of the comparison, the result of which is stored in `op1`, was greater than the second operand |
+| 0x21   | `jump_less_equal op1, <target address>` | Jumps to the specified address if the first operand of the comparison, the result of which is stored in `op1`, was less or equal to the second operand |
+| 0x22   | `jump_greater_equal op1, <target address>` | Jumps to the specified address if the first operand of the comparison, the result of which is stored in `op1`, was greater or equal to the second operand |
 
 #### Memory operations
 Wee Machine has 16 megabytes of byte-addressable memory in which both code and data are stored, plus 16 registers that can hold data and addresses. Wee Machine provides instructions to load and store data from and to registers and memory.
@@ -121,20 +126,20 @@ The following memory operations are available:
 
 | Opcode | Assembly | Semantics |
 | ------ | -------- | --------- |
-| 0x1e   | `move op1, op2` | Copies the value in `op1` to `op2` |
-| 0x1f   | `move word, op2` | Copies the 32-bit value in `word2` to `op2` |
-| 0x20   | `load word2, offset, op1` | Reads the 32-bit value at address `word2` + `offset` from memory and stores it in `op1` |
-| 0x21   | `load op1, offset, op1` | Reads the 32-bit value at address `op1` + `offset` from memory and stores it in `op2` |
-| 0x22   | `store op1, word2, offset` | Writes the 32-bit value in `op1` to memory at address `word2` + `offset` |
-| 0x23   | `store op1, op2, offset` | Writes the 32-bit value in `op1` to memory at address `op2` + `offset` |
-| 0x24   | `load_byte word2, offset, op1` | Reads the 8-bit value at address `word2` + `offset` from memory and stores it in `op1` |
-| 0x25   | `load_byte op1, offset, op1` | Reads the 8-bit value at address `op1` + `offset` from memory and stores it in `op2` |
-| 0x26   | `store_byte op1, word2, offset` | Writes the lowest 8 bits in `op1` to memory at address `word2` + `offset` |
-| 0x27   | `store_byte op1, op2, offset` | Writes the lowest 8 bits in `op1` to memory at address `op2` + `offset` |
-| 0x28   | `load_short word2, offset, op1` | Reads the 16-bit value at address `word2` + `offset` from memory and stores it in `op1` |
-| 0x29   | `load_short op1, offset, op1` | Reads the 16-bit value at address `op1` + `offset` from memory and stores it in `op2` |
-| 0x2a   | `store_short op1, word2, offset` | Writes the lowest 16 bits in `op1` to memory at address `word2` + `offset` |
-| 0x2b   | `store_short op1, op2, offset` | Writes the lowest 16 bits in `op1` to memory at address `op2` + `offset` |
+| 0x23   | `move op1, op2` | Copies the value in `op1` to `op2` |
+| 0x24   | `move word, op2` | Copies the 32-bit value in `word2` to `op2` |
+| 0x25   | `load word2, offset, op1` | Reads the 32-bit value at address `word2` + `offset` from memory and stores it in `op1` |
+| 0x26   | `load op1, offset, op1` | Reads the 32-bit value at address `op1` + `offset` from memory and stores it in `op2` |
+| 0x27   | `store op1, word2, offset` | Writes the 32-bit value in `op1` to memory at address `word2` + `offset` |
+| 0x28   | `store op1, op2, offset` | Writes the 32-bit value in `op1` to memory at address `op2` + `offset` |
+| 0x29   | `load_byte word2, offset, op1` | Reads the 8-bit value at address `word2` + `offset` from memory and stores it in `op1` |
+| 0x2a   | `load_byte op1, offset, op1` | Reads the 8-bit value at address `op1` + `offset` from memory and stores it in `op2` |
+| 0x2b   | `store_byte op1, word2, offset` | Writes the lowest 8 bits in `op1` to memory at address `word2` + `offset` |
+| 0x2c   | `store_byte op1, op2, offset` | Writes the lowest 8 bits in `op1` to memory at address `op2` + `offset` |
+| 0x2d   | `load_short word2, offset, op1` | Reads the 16-bit value at address `word2` + `offset` from memory and stores it in `op1` |
+| 0x2e   | `load_short op1, offset, op1` | Reads the 16-bit value at address `op1` + `offset` from memory and stores it in `op2` |
+| 0x2f   | `store_short op1, word2, offset` | Writes the lowest 16 bits in `op1` to memory at address `word2` + `offset` |
+| 0x30   | `store_short op1, op2, offset` | Writes the lowest 16 bits in `op1` to memory at address `op2` + `offset` |
 
 #### Stack & Call Operations
 Wee Machine has a stack at the end of the available memory `0xffffff` which grows "downwards". The register `sp` keeps track of the top of the stack in memory. Wee Machine provides instructions to make working with
@@ -164,13 +169,14 @@ The following stack & call operations are available:
 
 | Opcode | Assembly | Semantics |
 | ------ | -------- | --------- |
-| 0x2c   | `push word2` | Decrease `sp` by 4, then write the 32-bit value `word2` to the stack at address `sp` |
-| 0x2d   | `push op1` | decrease `sp` by 4, then write the 32-bit value in `op1` to the stack at address `sp` |
-| 0x2e   | `stackalloc <number of words> ` | Decrease `sp` by `4 * <number of words>` |
-| 0x2f  | `pop op1` | Reads the 32-bit value at address `sp`, stores it in `op1`, then increases `sp` by 4 |
-| 0x30  | `pop <number of words>` | Pops the number of words from the stack by increasing `sp` by `4 * <words to pop>`. |
-| 0x31  | `call word1` | Sets `pc` to `word1` which holds the address of the first instruction of the function, and resumes execution |
-| 0x32  | `return <number of words>` | Decreases `sp` by `4 * <number of words>`, sets `pc` to the value at address `sp`, pops one more word from the stack, and finally resumes execution |
+| 0x31   | `push word2` | Decrease `sp` by 4, then write the 32-bit value `word2` to the stack at address `sp` |
+| 0x32   | `push op1` | decrease `sp` by 4, then write the 32-bit value in `op1` to the stack at address `sp` |
+| 0x33   | `stackalloc <number of words> ` | Decrease `sp` by `4 * <number of words>` |
+| 0x34  | `pop op1` | Reads the 32-bit value at address `sp`, stores it in `op1`, then increases `sp` by 4 |
+| 0x35  | `pop <number of words>` | Pops the number of words from the stack by increasing `sp` by `4 * <words to pop>`. |
+| 0x36  | `call word1` | Pushes the address of the next instruction on the stack, sets `pc` to `word1` which holds the address of the first instruction of the function, and resumes execution |
+| 0x37  | `call op1` | Pushes the address of the next instruction on the stack, Sets `pc` to `op1` which holds the address of the first instruction of the function, and resumes execution |
+| 0x38  | `return <number of words>` | Decreases `sp` by `4 * <number of words>`, sets `pc` to the value at address `sp`, pops one more word from the stack, and finally resumes execution |
 
 #### Ports
 Wee Machine supports peripherals like keyboard, mouse or graphics card. The processor communicate with these peripherals via ports. Each peripheral is assigned a port number through which the processor can read or write from and to the peripheral. Each peripheral has its own protocol through which it communicates with the processor.
@@ -185,9 +191,9 @@ The following port operations are available:
 
 | Opcode | Assembly | Semantics |
 | ------ | -------- | --------- |
-| 0x33   | `port_write op1, <port number>` | Write the 32-bit value in `op1` to port `<port number>` |
-| 0x34   | `port_write word2, <port number>` | Write the 32-bit value `word2` to port `<port number>` |
-| 0x35   | `port_read <port number>, op1` | Read the 32-bit value from port `<port number>` and store it in `op1`. The operation may block until the peripheral has completed its work. |
+| 0x39   | `port_write op1, <port number>` | Write the 32-bit value in `op1` to port `<port number>` |
+| 0x3a   | `port_write word2, <port number>` | Write the 32-bit value `word2` to port `<port number>` |
+| 0x3b   | `port_read <port number>, op1` | Read the 32-bit value from port `<port number>` and store it in `op1`. The operation may block until the peripheral has completed its work. |
 
 ### Peripherals
 Wee Machine simulates a system with a keyboard, mouse, graphics card, sound card and networking card. These peripherals are heavily simplified to make working with them simple enough for beginners. The following sections describe the peripheral capabilities and their respective port protocols.
