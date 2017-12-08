@@ -26,7 +26,7 @@ var wee;
             else {
                 if (this.index == this.tokens.length)
                     return false;
-                return this.tokens[i].type == types;
+                return this.tokens[this.index].type == types;
             }
         };
         TokenStream.prototype.hasLeft = function (tokens) {
@@ -34,13 +34,24 @@ var wee;
         };
         return TokenStream;
     }());
+    var ParserResult = (function () {
+        function ParserResult(instructions, labels, instructionToLabel, diagnostics) {
+            this.instructions = instructions;
+            this.labels = labels;
+            this.instructionToLabel = instructionToLabel;
+            this.diagnostics = diagnostics;
+        }
+        ;
+        return ParserResult;
+    }());
+    wee.ParserResult = ParserResult;
     var Assembler = (function () {
         function Assembler() {
         }
         Assembler.prototype.assemble = function (source) {
             var tokens = new wee.Tokenizer().tokenize(source);
-            var instructions = this.parse(tokens);
-            var code = this.emit(instructions);
+            var parserResult = this.parse(tokens);
+            var code = this.emit(parserResult.instructions, parserResult.diagnostics);
             return code;
         };
         Assembler.prototype.parse = function (tokens) {
@@ -101,45 +112,177 @@ var wee;
                 if (token.value == "cos_float" || token.value == "sin_float" ||
                     token.value == "sqrt_float" || token.value == "pow_float" ||
                     token.value == "convert_float_int" || token.value == "convert_int_float") {
-                    if (!stream.lookAhead([wee.TokenType.Register, wee.TokenType.Register])) {
+                    if (!stream.lookAhead([wee.TokenType.Register, wee.TokenType.Coma, wee.TokenType.Register])) {
                         diagnostics.push(new wee.Diagnostic(wee.Severity.Error, token.range, "Arithmetic instruction " + token.value + " requires 2 register operands."));
                         break;
                     }
                     var op1 = stream.next();
+                    stream.next();
                     var op2 = stream.next();
                     instructions.push(new ArithmeticInstruction(token, op1, op2, null));
+                    continue;
                 }
                 if (token.value == "add" || token.value == "sub" || token.value == "mul" || token.value == "div" || token.value == "div_unsigned" ||
                     token.value == "remainder" || token.value == "remainder_unsigned" ||
                     token.value == "add_float" || token.value == "sub_float" || token.value == "mul_float" || token.value == "div_float" ||
                     token.value == "atan2_float" ||
                     token.value == "cmp" || token.value == "cmp_unsigned" || token.value == "fcmp") {
-                    if (!stream.lookAhead([wee.TokenType.Register, wee.TokenType.Register, wee.TokenType.Register])) {
+                    if (!stream.lookAhead([wee.TokenType.Register, wee.TokenType.Coma, wee.TokenType.Register, wee.TokenType.Coma, wee.TokenType.Register])) {
                         diagnostics.push(new wee.Diagnostic(wee.Severity.Error, token.range, "Arithmetic instruction " + token.value + " requires 3 register operands."));
                         break;
                     }
-                    instructions.push(new ArithmeticInstruction(token, stream.next(), stream.next(), stream.next()));
+                    var op1 = stream.next();
+                    stream.next();
+                    var op2 = stream.next();
+                    stream.next();
+                    var op3 = stream.next();
+                    instructions.push(new ArithmeticInstruction(token, op1, op2, op3));
+                    continue;
                 }
                 if (token.value == "not") {
-                    if (!stream.lookAhead([wee.TokenType.Register, wee.TokenType.Register])) {
+                    if (!stream.lookAhead([wee.TokenType.Register, wee.TokenType.Coma, wee.TokenType.Register])) {
                         diagnostics.push(new wee.Diagnostic(wee.Severity.Error, token.range, "Bit-wise instruction " + token.value + " requires 2 register operands."));
                         break;
                     }
-                    instructions.push(new BitwiseInstruction(token, stream.next(), stream.next(), null));
+                    var op1 = stream.next();
+                    stream.next();
+                    var op2 = stream.next();
+                    instructions.push(new BitwiseInstruction(token, op1, op2, null));
+                    continue;
                 }
                 if (token.value == "and" || token.value == "or" || token.value == "xor" ||
                     token.value == "shift_left" || token.value == "shift_right") {
-                    if (!stream.lookAhead([wee.TokenType.Register, wee.TokenType.Register, wee.TokenType.Register])) {
+                    if (!stream.lookAhead([wee.TokenType.Register, wee.TokenType.Coma, wee.TokenType.Register, wee.TokenType.Coma, wee.TokenType.Register])) {
                         diagnostics.push(new wee.Diagnostic(wee.Severity.Error, token.range, "Bit-wise instruction " + token.value + " requires 2 register operands."));
                         break;
                     }
-                    instructions.push(new BitwiseInstruction(token, stream.next(), stream.next(), stream.next()));
+                    var op1 = stream.next();
+                    stream.next();
+                    var op2 = stream.next();
+                    stream.next();
+                    var op3 = stream.next();
+                    instructions.push(new BitwiseInstruction(token, op1, op2, op3));
+                    continue;
+                }
+                if (token.value == "jump") {
+                    if (!(stream.lookAhead(wee.TokenType.IntegerLiteral) || stream.lookAhead(wee.TokenType.Identifier))) {
+                        diagnostics.push(new wee.Diagnostic(wee.Severity.Error, token.range, "Jump/branch instruction " + token.value + " requires an address as operand, e.g. 0xa000 or LABEL."));
+                        break;
+                    }
+                    instructions.push(new JumpInstruction(token, stream.next(), null));
+                    continue;
+                }
+                if (token.value == "jump_equal" || token.value == "jump_not_equal" || token.value == "jump_less" || token.value == "jump_greater" || token.value == "jump_less_equal" || token.value == "jump_greater_equal") {
+                    if (!(stream.lookAhead([wee.TokenType.Register, wee.TokenType.Coma, wee.TokenType.IntegerLiteral]) || stream.lookAhead([wee.TokenType.Register, wee.TokenType.Coma, wee.TokenType.Identifier]))) {
+                        diagnostics.push(new wee.Diagnostic(wee.Severity.Error, token.range, "Jump/branch instruction " + token.value + " requires one register operand holding the result of a comparison and an as address as the second operand, e.g. 0xa000 or LABEL."));
+                        break;
+                    }
+                    var op1 = stream.next();
+                    stream.next();
+                    var op2 = stream.next();
+                    instructions.push(new JumpInstruction(token, op1, op2));
+                    continue;
+                }
+                if (token.value == "move") {
+                    if (!(stream.lookAhead([wee.TokenType.Register, wee.TokenType.Coma, wee.TokenType.Register]) ||
+                        stream.lookAhead([wee.TokenType.IntegerLiteral, wee.TokenType.Coma, wee.TokenType.Register]) ||
+                        stream.lookAhead([wee.TokenType.FloatLiteral, wee.TokenType.Coma, wee.TokenType.Register]) ||
+                        stream.lookAhead([wee.TokenType.Identifier, wee.TokenType.Coma, wee.TokenType.Register]))) {
+                        diagnostics.push(new wee.Diagnostic(wee.Severity.Error, token.range, "Memory instruction " + token.value + " requires two register operands, or an int/float literal and a register operand, or a label and a register operand."));
+                        break;
+                    }
+                    var op1 = stream.next();
+                    stream.next();
+                    var op2 = stream.next();
+                    instructions.push(new MemoryInstruction(token, op1, op2, null));
+                    continue;
+                }
+                if (token.value == "load" || token.value == "load_byte" || token.value == "load_short") {
+                    if (!(stream.lookAhead([wee.TokenType.IntegerLiteral, wee.TokenType.Coma, wee.TokenType.IntegerLiteral, wee.TokenType.Coma, wee.TokenType.Register]) ||
+                        stream.lookAhead([wee.TokenType.Identifier, wee.TokenType.Coma, wee.TokenType.IntegerLiteral, wee.TokenType.Coma, wee.TokenType.Register]) ||
+                        stream.lookAhead([wee.TokenType.Register, wee.TokenType.Coma, wee.TokenType.IntegerLiteral, wee.TokenType.Coma, wee.TokenType.Register]))) {
+                        diagnostics.push(new wee.Diagnostic(wee.Severity.Error, token.range, "Memory instruction " + token.value + " requires and address as an int literal, label or register, an offset as an int literal, and a register."));
+                        break;
+                    }
+                    var op1 = stream.next();
+                    stream.next();
+                    var op2 = stream.next();
+                    stream.next();
+                    var op3 = stream.next();
+                    instructions.push(new MemoryInstruction(token, op1, op2, op3));
+                    continue;
+                }
+                if (token.value == "store" || token.value == "store_byte" || token.value == "store_short") {
+                    if (!(stream.lookAhead([wee.TokenType.Register, wee.TokenType.Coma, wee.TokenType.IntegerLiteral, wee.TokenType.Coma, wee.TokenType.IntegerLiteral]) ||
+                        stream.lookAhead([wee.TokenType.Register, wee.TokenType.Coma, wee.TokenType.Identifier, wee.TokenType.Coma, wee.TokenType.IntegerLiteral]) ||
+                        stream.lookAhead([wee.TokenType.Register, wee.TokenType.Coma, wee.TokenType.Register, wee.TokenType.Coma, wee.TokenType.IntegerLiteral]))) {
+                        diagnostics.push(new wee.Diagnostic(wee.Severity.Error, token.range, "Memory instruction " + token.value + " requires a register, an address as an int literal, label or register, and an offset as an int literal."));
+                        break;
+                    }
+                    var op1 = stream.next();
+                    stream.next();
+                    var op2 = stream.next();
+                    stream.next();
+                    var op3 = stream.next();
+                    instructions.push(new MemoryInstruction(token, op1, op2, op3));
+                    continue;
+                }
+                if (token.value == "push" || token.value == "call") {
+                    if (!(stream.lookAhead(wee.TokenType.Register) || stream.lookAhead(wee.TokenType.IntegerLiteral) || stream.lookAhead(wee.TokenType.FloatLiteral) || stream.lookAhead(wee.TokenType.Identifier))) {
+                        diagnostics.push(new wee.Diagnostic(wee.Severity.Error, token.range, "Stack/call operation " + token.value + " requires a register, integer or float literal or label as operand"));
+                        break;
+                    }
+                    instructions.push(new StackOrCallInstruction(token, stream.next()));
+                    continue;
+                }
+                if (token.value == "pop") {
+                    if (!(stream.lookAhead(wee.TokenType.Register) || stream.lookAhead(wee.TokenType.IntegerLiteral))) {
+                        diagnostics.push(new wee.Diagnostic(wee.Severity.Error, token.range, "Stack/call operation " + token.value + " requires a register or integer literal as operand"));
+                        break;
+                    }
+                    instructions.push(new StackOrCallInstruction(token, stream.next()));
+                    continue;
+                }
+                if (token.value == "stackalloc" || token.value == "return") {
+                    if (!stream.lookAhead(wee.TokenType.IntegerLiteral)) {
+                        diagnostics.push(new wee.Diagnostic(wee.Severity.Error, token.range, "Stack/call operation " + token.value + " requires an integer literal as operand"));
+                        break;
+                    }
+                    instructions.push(new StackOrCallInstruction(token, stream.next()));
+                    continue;
+                }
+                if (token.value == "port_write") {
+                    if (!(stream.lookAhead([wee.TokenType.Register, wee.TokenType.Coma, wee.TokenType.IntegerLiteral]) ||
+                        stream.lookAhead([wee.TokenType.IntegerLiteral, wee.TokenType.Coma, wee.TokenType.IntegerLiteral]) ||
+                        stream.lookAhead([wee.TokenType.FloatLiteral, wee.TokenType.Coma, wee.TokenType.IntegerLiteral]) ||
+                        stream.lookAhead([wee.TokenType.Identifier, wee.TokenType.Coma, wee.TokenType.IntegerLiteral]))) {
+                        diagnostics.push(new wee.Diagnostic(wee.Severity.Error, token.range, "Port operation " + token.value + " requires an integer or float literal or a label or a register as the first operand and an integer literal as the second operand."));
+                        break;
+                    }
+                    var op1 = stream.next();
+                    stream.next();
+                    var op2 = stream.next();
+                    instructions.push(new PortInstruction(token, op1, op2));
+                    continue;
+                }
+                if (token.value == "port_read") {
+                    if (!stream.lookAhead([wee.TokenType.IntegerLiteral, wee.TokenType.Coma, wee.TokenType.Register])) {
+                        diagnostics.push(new wee.Diagnostic(wee.Severity.Error, token.range, "Port operation " + token.value + " requires an integer literal as the first operand, and a register as the second operand."));
+                        break;
+                    }
+                    var op1 = stream.next();
+                    stream.next();
+                    var op2 = stream.next();
+                    instructions.push(new PortInstruction(token, op1, op2));
+                    continue;
                 }
                 diagnostics.push(new wee.Diagnostic(wee.Severity.Error, token.range, "Expected a label, data definition or instruction, got " + token.value));
+                break;
             }
-            return instructions;
+            return new ParserResult(instructions, labels, instructionToLabel, diagnostics);
         };
-        Assembler.prototype.emit = function (instructions) {
+        Assembler.prototype.emit = function (instructions, diagnostics) {
+            return null;
         };
         return Assembler;
     }());
@@ -193,6 +336,44 @@ var wee;
         return BitwiseInstruction;
     }());
     wee.BitwiseInstruction = BitwiseInstruction;
+    var JumpInstruction = (function () {
+        function JumpInstruction(branchType, operand1, operand2) {
+            this.branchType = branchType;
+            this.operand2 = operand2;
+        }
+        ;
+        return JumpInstruction;
+    }());
+    wee.JumpInstruction = JumpInstruction;
+    var MemoryInstruction = (function () {
+        function MemoryInstruction(operation, operand1, operand2, operand3) {
+            this.operation = operation;
+            this.operand2 = operand2;
+            this.operand3 = operand3;
+        }
+        ;
+        return MemoryInstruction;
+    }());
+    wee.MemoryInstruction = MemoryInstruction;
+    var StackOrCallInstruction = (function () {
+        function StackOrCallInstruction(operation, operand1) {
+            this.operation = operation;
+            this.operand1 = operand1;
+        }
+        ;
+        return StackOrCallInstruction;
+    }());
+    wee.StackOrCallInstruction = StackOrCallInstruction;
+    var PortInstruction = (function () {
+        function PortInstruction(operation, operand1, operand2) {
+            this.operation = operation;
+            this.operand1 = operand1;
+            this.operand2 = operand2;
+        }
+        ;
+        return PortInstruction;
+    }());
+    wee.PortInstruction = PortInstruction;
 })(wee || (wee = {}));
 var wee;
 (function (wee) {
@@ -517,7 +698,10 @@ var wee;
         function testParser() {
             try {
                 var assembler = new wee.Assembler();
-                console.log(assembler.parse(new wee.Tokenizer().tokenize("\n\t\t\t\thelloWorld: string \"Hello world\"\n\t\t\t\tmove 10, r0\n\t\t\t\tloop:\n\t\t\t\t\tmove r1, 1\n\t\t\t\t\tsub r0, r1, r0\n\t\t\t\t\tcmp r0, 0\n\t\t\t\t\tjump_not_equal loop\n\t\t\t\t# end loop\n\t\t\t\thalt\n\t\t\t")));
+                var parserResult = assembler.parse(new wee.Tokenizer().tokenize("\n\t\t\t\thelloWorld: string \"Hello world\"\n\t\t\t\tmove 10, r0\n\t\t\t\tmove 1, r1\n\t\t\t\tloop:\n\t\t\t\t\tsub r0, r1, r0\n\t\t\t\t\tmove 0, r2\n\t\t\t\t\tcmp r0, r2, r2\n\t\t\t\t\tjump_not_equal r2, loop\n\t\t\t\t# end loop\n\t\t\t\thalt\n\t\t\t"));
+                for (var i = 0; i < parserResult.diagnostics.length; i++) {
+                    console.log(parserResult.diagnostics[i].toString());
+                }
             }
             catch (e) {
                 console.log(e);

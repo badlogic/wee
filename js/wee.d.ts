@@ -5,10 +5,17 @@ declare module wee {
     interface IndexedMap<V> {
         [key: number]: V;
     }
+    class ParserResult {
+        instructions: Array<Instruction>;
+        labels: StringMap<Label>;
+        instructionToLabel: IndexedMap<Label>;
+        diagnostics: Array<Diagnostic>;
+        constructor(instructions: Array<Instruction>, labels: StringMap<Label>, instructionToLabel: IndexedMap<Label>, diagnostics: Array<Diagnostic>);
+    }
     class Assembler {
-        assemble(source: string): void;
-        parse(tokens: Array<Token>): Array<Instruction> | Array<Diagnostic>;
-        emit(instructions: Array<Instruction>): void;
+        assemble(source: string): Uint8Array;
+        parse(tokens: Array<Token>): ParserResult;
+        emit(instructions: Array<Instruction>, diagnostics: Array<Diagnostic>): Uint8Array;
     }
     class Label {
         token: Token;
@@ -39,6 +46,28 @@ declare module wee {
         operand2: Token;
         operand3: Token;
         constructor(operation: Token, operand1: Token, operand2: Token, operand3: Token);
+    }
+    class JumpInstruction implements Instruction {
+        branchType: Token;
+        operand2: Token;
+        constructor(branchType: Token, operand1: Token, operand2: Token);
+    }
+    class MemoryInstruction implements Instruction {
+        operation: Token;
+        operand2: Token;
+        operand3: Token;
+        constructor(operation: Token, operand1: Token, operand2: Token, operand3: Token);
+    }
+    class StackOrCallInstruction implements Instruction {
+        operation: Token;
+        operand1: Token;
+        constructor(operation: Token, operand1: Token);
+    }
+    class PortInstruction implements Instruction {
+        operation: Token;
+        operand1: Token;
+        operand2: Token;
+        constructor(operation: Token, operand1: Token, operand2: Token);
     }
 }
 declare module wee {

@@ -1,7 +1,7 @@
 module wee.tests {
 	export function runTests () {
 		testLexer();
-		testParser();		
+		testParser();
 	}
 
 	function testLexer () {
@@ -31,17 +31,21 @@ module wee.tests {
 	function testParser () {
 		try {
 			let assembler = new wee.Assembler();
-			console.log(assembler.parse(new wee.Tokenizer().tokenize(`
+			let parserResult = assembler.parse(new wee.Tokenizer().tokenize(`
 				helloWorld: string "Hello world"
 				move 10, r0
+				move 1, r1
 				loop:
-					move r1, 1
 					sub r0, r1, r0
-					cmp r0, 0
-					jump_not_equal loop
+					move 0, r2
+					cmp r0, r2, r2
+					jump_not_equal r2, loop
 				# end loop
 				halt
-			`)));
+			`));
+			for (var i = 0; i < parserResult.diagnostics.length; i++) {
+				console.log(parserResult.diagnostics[i].toString());
+			}
 		} catch (e) {
 			console.log(e);
 		}
