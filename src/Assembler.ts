@@ -292,9 +292,10 @@ module wee {
 						stream.lookAhead([TokenType.Register, TokenType.Coma, TokenType.IntegerLiteral]) ||
 						stream.lookAhead([TokenType.IntegerLiteral, TokenType.Coma, TokenType.IntegerLiteral]) ||
 						stream.lookAhead([TokenType.FloatLiteral, TokenType.Coma, TokenType.IntegerLiteral]) ||
-						stream.lookAhead([TokenType.Identifier, TokenType.Coma, TokenType.IntegerLiteral])
+						stream.lookAhead([TokenType.Identifier, TokenType.Coma, TokenType.IntegerLiteral]) ||
+						stream.lookAhead([TokenType.Register, TokenType.Coma, TokenType.Register])
 					)) {
-						diagnostics.push(new Diagnostic(Severity.Error, token.range, `Port operation ${token.value} requires an integer or float literal or a label or a register as the first operand and an integer literal as the second operand.`));
+						diagnostics.push(new Diagnostic(Severity.Error, token.range, `Port operation ${token.value} requires an integer or float literal or a label or a register as the first operand and an integer literal or a register as the second operand.`));
 						break;
 					}
 					let op1 = stream.next();
@@ -306,8 +307,11 @@ module wee {
 
 				// Port operation, read
 				if (token.value == "port_read") {
-					if (!stream.lookAhead([TokenType.IntegerLiteral, TokenType.Coma, TokenType.Register])) {
-						diagnostics.push(new Diagnostic(Severity.Error, token.range, `Port operation ${token.value} requires an integer literal as the first operand, and a register as the second operand.`));
+					if (!(
+						stream.lookAhead([TokenType.IntegerLiteral, TokenType.Coma, TokenType.Register]) ||
+						stream.lookAhead([TokenType.Register, TokenType.Coma, TokenType.Register])
+					)) {
+						diagnostics.push(new Diagnostic(Severity.Error, token.range, `Port operation ${token.value} requires an integer literal or register as the first operand, and a register as the second operand.`));
 						break;
 					}
 					let op1 = stream.next();
@@ -325,45 +329,297 @@ module wee {
 		}
 
 		emit (instructions: Array<Instruction>, diagnostics: Array<Diagnostic>): Uint8Array {
-			return null;
+			let buffer = new ArrayBuffer(16 * 1024 * 1024);
+			let view = new DataView(buffer);
+			let address = 0;
+
+			for (var i = 0; i < instructions.length; i++) {
+				let instruction = instructions[i];
+				address = instruction.emit(view, address, diagnostics);
+			}
+
+			return new Uint8Array(buffer);
+		}
+
+		static getRegisterIndex(reg: Token) {
+			if (reg.type != TokenType.Register) throw new Error(`Unexpected token type ${reg.type}!`);
+			if (reg.value == "pc") return 14;
+			if (reg.value == "sp") return 15;
+			return parseInt((reg.value as string).substr(1));
+		}
+
+		static encodeOpRegRegReg(op: number, reg1: number, reg2: number, reg3: number) {
+			return (op & 0x1f) |
+				   ((reg1 & 0xf) << 6) |
+				   ((reg2 & 0xf) << 10) |
+				   ((reg3 & 0xf) << 14);
+		}
+
+		static encodeOpRegNum(op: number, reg: number, num: number) {
+			return (op & 0x1f) |
+				   ((reg & 0xf) << 6) |
+				   ((num & 0x3fffff) << 10);
+		}
+
+		static encodeOpRegRegNum(op: number, reg1: number, reg2: number, num: number) {
+			return (op & 0x1f) |
+				   ((reg1 & 0xf) << 6) |
+				   ((reg2 & 0xf) << 10) |
+				   ((num & 0x3ffff) << 14)
 		}
 	}
 
-	export class Label {
+	class Label {
 		constructor(public token: Token, public index: number) {};
 	}
 
-	export interface Instruction {};
+	interface Instruction {
+		address: number;
 
-	export class Data implements Instruction {
+		emit (view: DataView, address: number, diagnostics: Array<Diagnostic>): number;
+	};
+
+	class Data implements Instruction {
+		address: number;
+
 		constructor (public type: Token, public value: Token) {};
+
+		emit (view: DataView, address: number, diagnostics: Array<Diagnostic>): number {
+			this.address = address;
+
+			if (this.type.value == "byte") {
+				view.setUint8(address++, (this.value.value as number) & 0xff);
+				return address;
+			}
+
+			if (this.type.value == "short") {
+				view.setUint16(address, (this.value.value as number) & 0xffff);
+				address += 2;
+				return address;
+			}
+
+			if (this.type.value == "integer") {
+				view.setUint32(address, (this.value.value as number) & 0xffffffff);
+				address += 4;
+				return address;
+			}
+
+			if (this.type.value == "float") {
+				view.setFloat32(address, this.value.value as number);
+				address += 4;
+				return address;
+			}
+
+			if (this.type.value == "string") {
+				let string = this.value.value as string;
+				for (var i = 0; i < string.length; i++) {
+					view.setUint8(address++, string.charCodeAt(i) & 0xff);
+				}
+				view.setUint8(address++, 0);
+				return address;
+			}
+
+			diagnostics.push(new Diagnostic(Severity.Error, this.type.range, `Unknown data type ${this.type.value}.`));
+		}
 	}
 
-	export class Halt implements Instruction {
+	class Halt implements Instruction {
+		address: number;
+
 		constructor (public token: Token) {};
+
+		emit (view: DataView, address: number, diagnostics: Array<Diagnostic>): number {
+			this.address = address;
+			view.setUint32(address, 0);
+			return address + 4;
+		}
 	}
 
-	export class ArithmeticInstruction implements Instruction {
+	class ArithmeticInstruction implements Instruction {
+		address: number;
+
 		constructor (public operation: Token, public operand1: Token, public operand2: Token, public operand3: Token) {};
+
+		emit (view: DataView, address: number, diagnostics: Array<Diagnostic>): number {
+			this.address = address;
+
+			let op1 = Assembler.getRegisterIndex(this.operand1);
+			let op2 = Assembler.getRegisterIndex(this.operand2);
+			let op3 = this.operand3 ? Assembler.getRegisterIndex(this.operand3) : 0;
+			let opcode = 0;
+
+			if (this.operation.value == "add") opcode = 0x01;
+			else if (this.operation.value == "sub") opcode = 0x02;
+			else if (this.operation.value == "mul") opcode = 0x03;
+			else if (this.operation.value == "div") opcode = 0x04;
+			else if (this.operation.value == "div_unsigned") opcode = 0x05;
+			else if (this.operation.value == "remainder") opcode = 0x06;
+			else if (this.operation.value == "remainder_unsigned") opcode = 0x07;
+			else if (this.operation.value == "add_float") opcode = 0x08;
+			else if (this.operation.value == "sub_float") opcode = 0x09;
+			else if (this.operation.value == "mul_float") opcode = 0x0a;
+			else if (this.operation.value == "div_float") opcode = 0x0b;
+			else if (this.operation.value == "cos_float") opcode = 0x0c;
+			else if (this.operation.value == "sin_float") opcode = 0x0d;
+			else if (this.operation.value == "atan2_float") opcode = 0x0e
+			else if (this.operation.value == "sqrt_float") opcode = 0x0f;
+			else if (this.operation.value == "pow_float") opcode = 0x10;
+			else if (this.operation.value == "convert_int_float") opcode = 0x11;
+			else if (this.operation.value == "convert_float_int") opcode = 0x12;
+			else if (this.operation.value == "cmp") opcode = 0x13;
+			else if (this.operation.value == "cmp_unsigned") opcode = 0x14;
+			else if (this.operation.value == "fcmp") opcode = 0x15;
+			else {
+				diagnostics.push(new Diagnostic(Severity.Error, this.operation.range, `Unknown arithmetic instruction ${this.operation.value}`));
+				return address;
+			}
+			view.setUint32(address, Assembler.encodeOpRegRegReg(opcode, op1, op2, op3));
+			return address + 4;
+		}
 	}
 
-	export class BitwiseInstruction implements Instruction {
+	class BitwiseInstruction implements Instruction {
+		address: number;
+
 		constructor (public operation: Token, public operand1: Token, public operand2: Token, public operand3: Token) {};
+
+		emit (view: DataView, address: number, diagnostics: Array<Diagnostic>): number {
+			this.address = address;
+
+			let op1 = Assembler.getRegisterIndex(this.operand1);
+			let op2 = Assembler.getRegisterIndex(this.operand2);
+			let op3 = this.operand3 ? Assembler.getRegisterIndex(this.operand3) : 0;
+			let opcode = 0;
+
+			if (this.operation.value == "not") opcode = 0x16;
+			else if (this.operation.value == "and") opcode = 0x17;
+			else if (this.operation.value == "or") opcode = 0x18;
+			else if (this.operation.value == "xor") opcode = 0x19;
+			else if (this.operation.value == "shift_left") opcode = 0x1a;
+			else if (this.operation.value == "shift_right") opcode = 0x1b;
+			else {
+				diagnostics.push(new Diagnostic(Severity.Error, this.operation.range, `Unknown bit-wise instruction ${this.operation.value}`));
+				return address;
+			}
+			view.setUint32(address, Assembler.encodeOpRegRegReg(opcode, op1, op2, op3));
+			return address + 4;
+		}
 	}
 
-	export class JumpInstruction implements Instruction {
-		constructor (public branchType: Token, operand1: Token, public operand2: Token) {};
+	class JumpInstruction implements Instruction {
+		address: number;
+
+		constructor (public branchType: Token, public operand1: Token, public operand2: Token) {};
+
+		emit (view: DataView, address: number, diagnostics: Array<Diagnostic>): number {
+			this.address = address;
+
+			if (this.branchType.value == "jump") {
+				view.setUint32(address, 0x1c);
+				address += 4;
+
+				if (this.operand1.type == TokenType.IntegerLiteral) {
+					view.setUint32(address, this.operand1.value as number);
+				} else {
+					// BOZO patch
+					view.setUint32(address, 0xdeadbeaf);
+				}
+				return address + 4;
+			} else {
+				let op1 = Assembler.getRegisterIndex(this.operand1);
+				let opcode = 0;
+				let targetAddress = 0;
+				if (this.operand2.type == TokenType.IntegerLiteral) {
+					targetAddress = this.operand2.value as number;
+				} else {
+					// BOZO patch
+					targetAddress = 0xdeadbeaf;
+				}
+
+				if (this.branchType.value == "jump_equal") opcode = 0x1d;
+				else if (this.branchType.value == "jump_not_equal") opcode = 0x1e;
+				else if (this.branchType.value == "jump_less") opcode = 0x1f;
+				else if (this.branchType.value == "jump_greater") opcode = 0x20;
+				else if (this.branchType.value == "jump_less_equal") opcode = 0x21;
+				else if (this.branchType.value == "jump_greater_equal") opcode = 0x22;
+				else {
+					diagnostics.push(new Diagnostic(Severity.Error, this.branchType.range, `Unknown jump/branch instruction ${this.branchType.value}`));
+					return address;
+				}
+				view.setUint32(address, Assembler.encodeOpRegNum(opcode, op1, targetAddress));
+				return address + 4;
+			}
+		}
 	}
 
-	export class MemoryInstruction implements Instruction {
+	class MemoryInstruction implements Instruction {
+		address: number;
+
 		constructor (public operation: Token, operand1: Token, public operand2: Token, public operand3: Token) {};
+
+		emit (view: DataView, address: number, diagnostics: Array<Diagnostic>): number {
+			this.address = address;
+			return 0;
+		}
 	}
 
-	export class StackOrCallInstruction implements Instruction {
+	class StackOrCallInstruction implements Instruction {
+		address: number;
+
 		constructor (public operation: Token, public operand1: Token) {};
+
+		emit (view: DataView, address: number, diagnostics: Array<Diagnostic>): number {
+			this.address = address;
+			return 0;
+		}
 	}
 
-	export class PortInstruction implements Instruction {
+	class PortInstruction implements Instruction {
+		address: number;
+
 		constructor (public operation: Token, public operand1: Token, public operand2: Token) {};
+
+		emit (view: DataView, address: number, diagnostics: Array<Diagnostic>): number {
+			this.address = address;
+
+			if (this.operation.value == "port_write") {
+				if (this.operand2.type == TokenType.IntegerLiteral) {
+					let portNumber = this.operand2.value as number;
+					if (this.operand1.type == TokenType.Register) {
+						let register = Assembler.getRegisterIndex(this.operand1);
+						view.setUint32(address, Assembler.encodeOpRegRegNum(0x39, register, 0, portNumber));
+					} else if (this.operand1.type == TokenType.IntegerLiteral) {
+						view.setUint32(address, Assembler.encodeOpRegRegNum(0x3a, 0, 0, portNumber));
+						address += 4;
+						view.setUint32(address, this.operand2.value as number);
+					} else if (this.operand1.type == TokenType.FloatLiteral) {
+						view.setUint32(address, Assembler.encodeOpRegRegNum(0x3a, 0, 0, portNumber));
+						address += 4;
+						view.setFloat32(address, this.operand2.value as number);
+					} else if (this.operand1.type == TokenType.Identifier) {
+						// BOZO patch
+						view.setUint32(address, Assembler.encodeOpRegRegNum(0x3a, 0, 0, portNumber));
+						address += 4;
+						view.setUint32(address, 0xdeadbeaf);
+					}
+				} else {
+					let register1 = Assembler.getRegisterIndex(this.operand1);
+					let register2 = Assembler.getRegisterIndex(this.operand2);
+					view.setUint32(address, Assembler.encodeOpRegRegNum(0x3b, register1, register2, 0));
+				}
+				return address + 4;
+			} else if (this.operation.value == "port_read") {
+				if (this.operand1.type == TokenType.IntegerLiteral) {
+					let portNumber = this.operand1.value as number;
+					let register = Assembler.getRegisterIndex(this.operand2);
+					view.setUint32(address, Assembler.encodeOpRegRegNum(0x3c, register, 0, portNumber));
+				} else {
+					let register1 = Assembler.getRegisterIndex(this.operand1);
+					let register2 = Assembler.getRegisterIndex(this.operand2);
+					view.setUint32(address, Assembler.encodeOpRegRegNum(0x3d, register1, register2, 0));
+				}
+				return address + 4;
+			}
+		}
 	}
 }

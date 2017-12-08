@@ -35,7 +35,7 @@ module wee {
 			if (char == "\n") {
 				this.line++;
 				this.column = 1;
-			}			
+			}
 			return char;
 		}
 
@@ -217,7 +217,7 @@ module wee {
 
 				// string
 				if (char == '"') {
-					var string = char;
+					var string = "";
 					while (true) {
 						char = stream.next();
 						if (char == '\\') {

@@ -182,9 +182,9 @@ Wee Machine supports peripherals like keyboard, mouse or graphics card. The proc
 
 Port operations are 1 or 2-words wide and have the following format:
 
-| bits 0-5 | bits 6-9 | bits 10-31 | bits 32-63 |
-| -------- | -------- | -------- | ---------- |
-| Opcode   | Register (op1) | Port number | Value (word2) |
+| bits 0-5 | bits 6-9 | bits 10-13 | bits 14-31 | bits 32-63 |
+| -------- | -------- | ---------- | ---------- | ---------- |
+| Opcode   | Register (op1) | Register (op2) | Port number | Value (word2) |
 
 The following port operations are available:
 
@@ -192,7 +192,9 @@ The following port operations are available:
 | ------ | -------- | --------- |
 | 0x39   | `port_write op1, <port number>` | Write the 32-bit value in `op1` to port `<port number>` |
 | 0x3a   | `port_write word2, <port number>` | Write the 32-bit value `word2` to port `<port number>` |
-| 0x3b   | `port_read <port number>, op1` | Read the 32-bit value from port `<port number>` and store it in `op1`. The operation may block until the peripheral has completed its work. |
+| 0x3b   | `port_write op2, op2` | Write the 32-bit value in `op1` to port `op2` |
+| 0x3c   | `port_read <port number>, op1` | Read the 32-bit value from port `<port number>` and store it in `op1`. The operation may block until the peripheral has completed its work. |
+| 0x3d   | `port_read op1, op2` | Read the 32-bit value from port `op1` and store it in `op2`. The operation may block until the peripheral has completed its work. |
 
 ### Peripherals
 Wee Machine simulates a system with a keyboard, mouse, graphics card, sound card and networking card. These peripherals are heavily simplified to make working with them simple enough for beginners. The following sections describe the peripheral capabilities and their respective port protocols.

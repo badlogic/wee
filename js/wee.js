@@ -255,8 +255,9 @@ var wee;
                     if (!(stream.lookAhead([wee.TokenType.Register, wee.TokenType.Coma, wee.TokenType.IntegerLiteral]) ||
                         stream.lookAhead([wee.TokenType.IntegerLiteral, wee.TokenType.Coma, wee.TokenType.IntegerLiteral]) ||
                         stream.lookAhead([wee.TokenType.FloatLiteral, wee.TokenType.Coma, wee.TokenType.IntegerLiteral]) ||
-                        stream.lookAhead([wee.TokenType.Identifier, wee.TokenType.Coma, wee.TokenType.IntegerLiteral]))) {
-                        diagnostics.push(new wee.Diagnostic(wee.Severity.Error, token.range, "Port operation " + token.value + " requires an integer or float literal or a label or a register as the first operand and an integer literal as the second operand."));
+                        stream.lookAhead([wee.TokenType.Identifier, wee.TokenType.Coma, wee.TokenType.IntegerLiteral]) ||
+                        stream.lookAhead([wee.TokenType.Register, wee.TokenType.Coma, wee.TokenType.Register]))) {
+                        diagnostics.push(new wee.Diagnostic(wee.Severity.Error, token.range, "Port operation " + token.value + " requires an integer or float literal or a label or a register as the first operand and an integer literal or a register as the second operand."));
                         break;
                     }
                     var op1 = stream.next();
@@ -266,8 +267,9 @@ var wee;
                     continue;
                 }
                 if (token.value == "port_read") {
-                    if (!stream.lookAhead([wee.TokenType.IntegerLiteral, wee.TokenType.Coma, wee.TokenType.Register])) {
-                        diagnostics.push(new wee.Diagnostic(wee.Severity.Error, token.range, "Port operation " + token.value + " requires an integer literal as the first operand, and a register as the second operand."));
+                    if (!(stream.lookAhead([wee.TokenType.IntegerLiteral, wee.TokenType.Coma, wee.TokenType.Register]) ||
+                        stream.lookAhead([wee.TokenType.Register, wee.TokenType.Coma, wee.TokenType.Register]))) {
+                        diagnostics.push(new wee.Diagnostic(wee.Severity.Error, token.range, "Port operation " + token.value + " requires an integer literal or register as the first operand, and a register as the second operand."));
                         break;
                     }
                     var op1 = stream.next();
@@ -282,7 +284,40 @@ var wee;
             return new ParserResult(instructions, labels, instructionToLabel, diagnostics);
         };
         Assembler.prototype.emit = function (instructions, diagnostics) {
-            return null;
+            var buffer = new ArrayBuffer(16 * 1024 * 1024);
+            var view = new DataView(buffer);
+            var address = 0;
+            for (var i = 0; i < instructions.length; i++) {
+                var instruction = instructions[i];
+                address = instruction.emit(view, address, diagnostics);
+            }
+            return new Uint8Array(buffer);
+        };
+        Assembler.getRegisterIndex = function (reg) {
+            if (reg.type != wee.TokenType.Register)
+                throw new Error("Unexpected token type " + reg.type + "!");
+            if (reg.value == "pc")
+                return 14;
+            if (reg.value == "sp")
+                return 15;
+            return parseInt(reg.value.substr(1));
+        };
+        Assembler.encodeOpRegRegReg = function (op, reg1, reg2, reg3) {
+            return (op & 0x1f) |
+                ((reg1 & 0xf) << 6) |
+                ((reg2 & 0xf) << 10) |
+                ((reg3 & 0xf) << 14);
+        };
+        Assembler.encodeOpRegNum = function (op, reg, num) {
+            return (op & 0x1f) |
+                ((reg & 0xf) << 6) |
+                ((num & 0x3fffff) << 10);
+        };
+        Assembler.encodeOpRegRegNum = function (op, reg1, reg2, num) {
+            return (op & 0x1f) |
+                ((reg1 & 0xf) << 6) |
+                ((reg2 & 0xf) << 10) |
+                ((num & 0x3ffff) << 14);
         };
         return Assembler;
     }());
@@ -295,7 +330,6 @@ var wee;
         ;
         return Label;
     }());
-    wee.Label = Label;
     ;
     var Data = (function () {
         function Data(type, value) {
@@ -303,17 +337,51 @@ var wee;
             this.value = value;
         }
         ;
+        Data.prototype.emit = function (view, address, diagnostics) {
+            this.address = address;
+            if (this.type.value == "byte") {
+                view.setUint8(address++, this.value.value & 0xff);
+                return address;
+            }
+            if (this.type.value == "short") {
+                view.setUint16(address, this.value.value & 0xffff);
+                address += 2;
+                return address;
+            }
+            if (this.type.value == "integer") {
+                view.setUint32(address, this.value.value & 0xffffffff);
+                address += 4;
+                return address;
+            }
+            if (this.type.value == "float") {
+                view.setFloat32(address, this.value.value);
+                address += 4;
+                return address;
+            }
+            if (this.type.value == "string") {
+                var string = this.value.value;
+                for (var i = 0; i < string.length; i++) {
+                    view.setUint8(address++, string.charCodeAt(i) & 0xff);
+                }
+                view.setUint8(address++, 0);
+                return address;
+            }
+            diagnostics.push(new wee.Diagnostic(wee.Severity.Error, this.type.range, "Unknown data type " + this.type.value + "."));
+        };
         return Data;
     }());
-    wee.Data = Data;
     var Halt = (function () {
         function Halt(token) {
             this.token = token;
         }
         ;
+        Halt.prototype.emit = function (view, address, diagnostics) {
+            this.address = address;
+            view.setUint32(address, 0);
+            return address + 4;
+        };
         return Halt;
     }());
-    wee.Halt = Halt;
     var ArithmeticInstruction = (function () {
         function ArithmeticInstruction(operation, operand1, operand2, operand3) {
             this.operation = operation;
@@ -322,9 +390,63 @@ var wee;
             this.operand3 = operand3;
         }
         ;
+        ArithmeticInstruction.prototype.emit = function (view, address, diagnostics) {
+            this.address = address;
+            var op1 = Assembler.getRegisterIndex(this.operand1);
+            var op2 = Assembler.getRegisterIndex(this.operand2);
+            var op3 = this.operand3 ? Assembler.getRegisterIndex(this.operand3) : 0;
+            var opcode = 0;
+            if (this.operation.value == "add")
+                opcode = 0x01;
+            else if (this.operation.value == "sub")
+                opcode = 0x02;
+            else if (this.operation.value == "mul")
+                opcode = 0x03;
+            else if (this.operation.value == "div")
+                opcode = 0x04;
+            else if (this.operation.value == "div_unsigned")
+                opcode = 0x05;
+            else if (this.operation.value == "remainder")
+                opcode = 0x06;
+            else if (this.operation.value == "remainder_unsigned")
+                opcode = 0x07;
+            else if (this.operation.value == "add_float")
+                opcode = 0x08;
+            else if (this.operation.value == "sub_float")
+                opcode = 0x09;
+            else if (this.operation.value == "mul_float")
+                opcode = 0x0a;
+            else if (this.operation.value == "div_float")
+                opcode = 0x0b;
+            else if (this.operation.value == "cos_float")
+                opcode = 0x0c;
+            else if (this.operation.value == "sin_float")
+                opcode = 0x0d;
+            else if (this.operation.value == "atan2_float")
+                opcode = 0x0e;
+            else if (this.operation.value == "sqrt_float")
+                opcode = 0x0f;
+            else if (this.operation.value == "pow_float")
+                opcode = 0x10;
+            else if (this.operation.value == "convert_int_float")
+                opcode = 0x11;
+            else if (this.operation.value == "convert_float_int")
+                opcode = 0x12;
+            else if (this.operation.value == "cmp")
+                opcode = 0x13;
+            else if (this.operation.value == "cmp_unsigned")
+                opcode = 0x14;
+            else if (this.operation.value == "fcmp")
+                opcode = 0x15;
+            else {
+                diagnostics.push(new wee.Diagnostic(wee.Severity.Error, this.operation.range, "Unknown arithmetic instruction " + this.operation.value));
+                return address;
+            }
+            view.setUint32(address, Assembler.encodeOpRegRegReg(opcode, op1, op2, op3));
+            return address + 4;
+        };
         return ArithmeticInstruction;
     }());
-    wee.ArithmeticInstruction = ArithmeticInstruction;
     var BitwiseInstruction = (function () {
         function BitwiseInstruction(operation, operand1, operand2, operand3) {
             this.operation = operation;
@@ -333,18 +455,85 @@ var wee;
             this.operand3 = operand3;
         }
         ;
+        BitwiseInstruction.prototype.emit = function (view, address, diagnostics) {
+            this.address = address;
+            var op1 = Assembler.getRegisterIndex(this.operand1);
+            var op2 = Assembler.getRegisterIndex(this.operand2);
+            var op3 = this.operand3 ? Assembler.getRegisterIndex(this.operand3) : 0;
+            var opcode = 0;
+            if (this.operation.value == "not")
+                opcode = 0x16;
+            else if (this.operation.value == "and")
+                opcode = 0x17;
+            else if (this.operation.value == "or")
+                opcode = 0x18;
+            else if (this.operation.value == "xor")
+                opcode = 0x19;
+            else if (this.operation.value == "shift_left")
+                opcode = 0x1a;
+            else if (this.operation.value == "shift_right")
+                opcode = 0x1b;
+            else {
+                diagnostics.push(new wee.Diagnostic(wee.Severity.Error, this.operation.range, "Unknown bit-wise instruction " + this.operation.value));
+                return address;
+            }
+            view.setUint32(address, Assembler.encodeOpRegRegReg(opcode, op1, op2, op3));
+            return address + 4;
+        };
         return BitwiseInstruction;
     }());
-    wee.BitwiseInstruction = BitwiseInstruction;
     var JumpInstruction = (function () {
         function JumpInstruction(branchType, operand1, operand2) {
             this.branchType = branchType;
+            this.operand1 = operand1;
             this.operand2 = operand2;
         }
         ;
+        JumpInstruction.prototype.emit = function (view, address, diagnostics) {
+            this.address = address;
+            if (this.branchType.value == "jump") {
+                view.setUint32(address, 0x1c);
+                address += 4;
+                if (this.operand1.type == wee.TokenType.IntegerLiteral) {
+                    view.setUint32(address, this.operand1.value);
+                }
+                else {
+                    view.setUint32(address, 0xdeadbeaf);
+                }
+                return address + 4;
+            }
+            else {
+                var op1 = Assembler.getRegisterIndex(this.operand1);
+                var opcode = 0;
+                var targetAddress = 0;
+                if (this.operand2.type == wee.TokenType.IntegerLiteral) {
+                    targetAddress = this.operand2.value;
+                }
+                else {
+                    targetAddress = 0xdeadbeaf;
+                }
+                if (this.branchType.value == "jump_equal")
+                    opcode = 0x1d;
+                else if (this.branchType.value == "jump_not_equal")
+                    opcode = 0x1e;
+                else if (this.branchType.value == "jump_less")
+                    opcode = 0x1f;
+                else if (this.branchType.value == "jump_greater")
+                    opcode = 0x20;
+                else if (this.branchType.value == "jump_less_equal")
+                    opcode = 0x21;
+                else if (this.branchType.value == "jump_greater_equal")
+                    opcode = 0x22;
+                else {
+                    diagnostics.push(new wee.Diagnostic(wee.Severity.Error, this.branchType.range, "Unknown jump/branch instruction " + this.branchType.value));
+                    return address;
+                }
+                view.setUint32(address, Assembler.encodeOpRegNum(opcode, op1, targetAddress));
+                return address + 4;
+            }
+        };
         return JumpInstruction;
     }());
-    wee.JumpInstruction = JumpInstruction;
     var MemoryInstruction = (function () {
         function MemoryInstruction(operation, operand1, operand2, operand3) {
             this.operation = operation;
@@ -352,18 +541,24 @@ var wee;
             this.operand3 = operand3;
         }
         ;
+        MemoryInstruction.prototype.emit = function (view, address, diagnostics) {
+            this.address = address;
+            return 0;
+        };
         return MemoryInstruction;
     }());
-    wee.MemoryInstruction = MemoryInstruction;
     var StackOrCallInstruction = (function () {
         function StackOrCallInstruction(operation, operand1) {
             this.operation = operation;
             this.operand1 = operand1;
         }
         ;
+        StackOrCallInstruction.prototype.emit = function (view, address, diagnostics) {
+            this.address = address;
+            return 0;
+        };
         return StackOrCallInstruction;
     }());
-    wee.StackOrCallInstruction = StackOrCallInstruction;
     var PortInstruction = (function () {
         function PortInstruction(operation, operand1, operand2) {
             this.operation = operation;
@@ -371,9 +566,54 @@ var wee;
             this.operand2 = operand2;
         }
         ;
+        PortInstruction.prototype.emit = function (view, address, diagnostics) {
+            this.address = address;
+            if (this.operation.value == "port_write") {
+                if (this.operand2.type == wee.TokenType.IntegerLiteral) {
+                    var portNumber = this.operand2.value;
+                    if (this.operand1.type == wee.TokenType.Register) {
+                        var register = Assembler.getRegisterIndex(this.operand1);
+                        view.setUint32(address, Assembler.encodeOpRegRegNum(0x39, register, 0, portNumber));
+                    }
+                    else if (this.operand1.type == wee.TokenType.IntegerLiteral) {
+                        view.setUint32(address, Assembler.encodeOpRegRegNum(0x3a, 0, 0, portNumber));
+                        address += 4;
+                        view.setUint32(address, this.operand2.value);
+                    }
+                    else if (this.operand1.type == wee.TokenType.FloatLiteral) {
+                        view.setUint32(address, Assembler.encodeOpRegRegNum(0x3a, 0, 0, portNumber));
+                        address += 4;
+                        view.setFloat32(address, this.operand2.value);
+                    }
+                    else if (this.operand1.type == wee.TokenType.Identifier) {
+                        view.setUint32(address, Assembler.encodeOpRegRegNum(0x3a, 0, 0, portNumber));
+                        address += 4;
+                        view.setUint32(address, 0xdeadbeaf);
+                    }
+                }
+                else {
+                    var register1 = Assembler.getRegisterIndex(this.operand1);
+                    var register2 = Assembler.getRegisterIndex(this.operand2);
+                    view.setUint32(address, Assembler.encodeOpRegRegNum(0x3b, register1, register2, 0));
+                }
+                return address + 4;
+            }
+            else if (this.operation.value == "port_read") {
+                if (this.operand1.type == wee.TokenType.IntegerLiteral) {
+                    var portNumber = this.operand1.value;
+                    var register = Assembler.getRegisterIndex(this.operand2);
+                    view.setUint32(address, Assembler.encodeOpRegRegNum(0x3c, register, 0, portNumber));
+                }
+                else {
+                    var register1 = Assembler.getRegisterIndex(this.operand1);
+                    var register2 = Assembler.getRegisterIndex(this.operand2);
+                    view.setUint32(address, Assembler.encodeOpRegRegNum(0x3d, register1, register2, 0));
+                }
+                return address + 4;
+            }
+        };
         return PortInstruction;
     }());
-    wee.PortInstruction = PortInstruction;
 })(wee || (wee = {}));
 var wee;
 (function (wee) {
@@ -625,7 +865,7 @@ var wee;
                     continue;
                 }
                 if (char == '"') {
-                    var string = char;
+                    var string = "";
                     while (true) {
                         char = stream.next();
                         if (char == '\\') {
@@ -680,9 +920,16 @@ var wee;
 (function (wee) {
     var tests;
     (function (tests) {
+        function assert(expression, errorMessage) {
+            if (!expression) {
+                console.log(errorMessage);
+                throw errorMessage;
+            }
+        }
         function runTests() {
             testLexer();
             testParser();
+            testAssembler();
         }
         tests.runTests = runTests;
         function testLexer() {
@@ -707,13 +954,34 @@ var wee;
                 console.log(e);
             }
         }
+        function testAssembler() {
+            var assembler = new wee.Assembler();
+            var memory = assembler.assemble("\n\t\t\tbyte 0\n\t\t\tbyte 1\n\t\t\tbyte 2\n\t\t\tbyte 3\n\t\t\tbyte -123\n\t\t\tshort 0xabcd\n\t\t\tshort -1234\n\t\t\tinteger 0xaabbccdd\n\t\t\tinteger -123456\n\t\t\tfloat 3.299999952316284\n\t\t\tstring \"Hello world\"\n\t\t\thalt\n\t\t");
+            var view = new DataView(memory.buffer);
+            assert(view.getInt8(0) == 0, "Expected 0");
+            assert(view.getInt8(1) == 1, "Expected 1");
+            assert(view.getInt8(2) == 2, "Expected 2");
+            assert(view.getInt8(3) == 3, "Expected 3");
+            assert(view.getInt8(4) == -123, "Expected -123");
+            assert(view.getUint16(5) == 0xabcd, "Expected 0xabcd");
+            assert(view.getInt16(7) == -1234, "Expected -1234");
+            assert(view.getUint32(9) == 0xaabbccdd, "Expected 0xaabbccdd");
+            assert(view.getInt32(13) == -123456, "Expected 123456");
+            assert(view.getFloat32(17) == 3.299999952316284, "Expected 3.3");
+            var string = "Hello world";
+            for (var i = 21, j = 0; j < string.length; i++, j++) {
+                assert(view.getUint8(i) == string.charCodeAt(j), "Expected " + string.charAt(j));
+            }
+            assert(view.getUint8(32) == 0, "Expected 0");
+            assert(view.getUint32(33) == 0, "Expected 0");
+            console.log(memory);
+        }
     })(tests = wee.tests || (wee.tests = {}));
 })(wee || (wee = {}));
 var wee;
 (function (wee) {
     var VirtualMachine = (function () {
         function VirtualMachine() {
-            this.memory = new Uint32Array(1024 * 1024 * 16);
         }
         return VirtualMachine;
     }());
