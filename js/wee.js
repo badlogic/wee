@@ -555,7 +555,68 @@ var wee;
         ;
         StackOrCallInstruction.prototype.emit = function (view, address, diagnostics) {
             this.address = address;
-            return 0;
+            if (this.operation.value == "push") {
+                if (this.operand1.type == wee.TokenType.Register) {
+                    var register = Assembler.getRegisterIndex(this.operand1);
+                    view.setUint32(address, Assembler.encodeOpRegNum(0x32, register, 0));
+                }
+                else if (this.operand1.type == wee.TokenType.IntegerLiteral) {
+                    view.setUint32(address, Assembler.encodeOpRegNum(0x31, 0, 0));
+                    address += 4;
+                    view.setUint32(address, this.operand1.value);
+                }
+                else if (this.operand1.type == wee.TokenType.FloatLiteral) {
+                    view.setUint32(address, Assembler.encodeOpRegNum(0x31, 0, 0));
+                    address += 4;
+                    view.setFloat32(address, this.operand1.value);
+                }
+                else if (this.operand1.type == wee.TokenType.Identifier) {
+                    view.setUint32(address, Assembler.encodeOpRegNum(0x31, 0, 0));
+                    address += 4;
+                    view.setUint32(address, 0xdeadbeaf);
+                }
+            }
+            else if (this.operation.value == "stackalloc") {
+                view.setUint32(address, Assembler.encodeOpRegNum(0x33, 0, this.operand1.value));
+            }
+            else if (this.operation.value == "pop") {
+                if (this.operand1.type == wee.TokenType.Register) {
+                    var register = Assembler.getRegisterIndex(this.operand1);
+                    view.setUint32(address, Assembler.encodeOpRegNum(0x34, register, 0));
+                }
+                else {
+                    view.setUint32(address, Assembler.encodeOpRegNum(0x35, 0, this.operand1.value));
+                }
+            }
+            else if (this.operation.value == "call") {
+                if (this.operand1.type == wee.TokenType.Register) {
+                    var register = Assembler.getRegisterIndex(this.operand1);
+                    view.setUint32(address, Assembler.encodeOpRegNum(0x37, register, 0));
+                }
+                else if (this.operand1.type == wee.TokenType.IntegerLiteral) {
+                    view.setUint32(address, Assembler.encodeOpRegNum(0x36, 0, 0));
+                    address += 4;
+                    view.setUint32(address, this.operand1.value);
+                }
+                else if (this.operand1.type == wee.TokenType.FloatLiteral) {
+                    view.setUint32(address, Assembler.encodeOpRegNum(0x36, 0, 0));
+                    address += 4;
+                    view.setFloat32(address, this.operand1.value);
+                }
+                else if (this.operand1.type == wee.TokenType.Identifier) {
+                    view.setUint32(address, Assembler.encodeOpRegNum(0x36, 0, 0));
+                    address += 4;
+                    view.setUint32(address, 0xdeadbeaf);
+                }
+            }
+            else if (this.operation.value == "return") {
+                view.setUint32(address, Assembler.encodeOpRegNum(0x38, 0, this.operand1.value));
+            }
+            else {
+                diagnostics.push(new wee.Diagnostic(wee.Severity.Error, this.operation.range, "Unknown stack/call instruction " + this.operation.value));
+                return address;
+            }
+            return address + 4;
         };
         return StackOrCallInstruction;
     }());
@@ -596,7 +657,6 @@ var wee;
                     var register2 = Assembler.getRegisterIndex(this.operand2);
                     view.setUint32(address, Assembler.encodeOpRegRegNum(0x3b, register1, register2, 0));
                 }
-                return address + 4;
             }
             else if (this.operation.value == "port_read") {
                 if (this.operand1.type == wee.TokenType.IntegerLiteral) {
@@ -609,8 +669,12 @@ var wee;
                     var register2 = Assembler.getRegisterIndex(this.operand2);
                     view.setUint32(address, Assembler.encodeOpRegRegNum(0x3d, register1, register2, 0));
                 }
-                return address + 4;
             }
+            else {
+                diagnostics.push(new wee.Diagnostic(wee.Severity.Error, this.operation.range, "Unknown port instruction " + this.operation.value));
+                return address;
+            }
+            return address + 4;
         };
         return PortInstruction;
     }());
