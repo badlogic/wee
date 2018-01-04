@@ -35,31 +35,40 @@ var wee;
         return TokenStream;
     }());
     var ParserResult = (function () {
-        function ParserResult(instructions, labels, instructionToLabel, diagnostics) {
+        function ParserResult(instructions, labels, diagnostics) {
             this.instructions = instructions;
             this.labels = labels;
-            this.instructionToLabel = instructionToLabel;
             this.diagnostics = diagnostics;
         }
         ;
         return ParserResult;
     }());
     wee.ParserResult = ParserResult;
+    var AssemblerResult = (function () {
+        function AssemblerResult(code, instructions, labels, patches, diagnostics) {
+            this.code = code;
+            this.instructions = instructions;
+            this.labels = labels;
+            this.patches = patches;
+            this.diagnostics = diagnostics;
+        }
+        ;
+        return AssemblerResult;
+    }());
+    wee.AssemblerResult = AssemblerResult;
     var Assembler = (function () {
         function Assembler() {
         }
         Assembler.prototype.assemble = function (source) {
             var tokens = new wee.Tokenizer().tokenize(source);
             var parserResult = this.parse(tokens);
-            var code = this.emit(parserResult.instructions, parserResult.diagnostics);
-            return code;
+            return this.emit(parserResult.instructions, parserResult.labels, parserResult.diagnostics);
         };
         Assembler.prototype.parse = function (tokens) {
             var instructions = new Array();
             var diagnostics = new Array();
             var stream = new TokenStream(tokens);
             var labels = {};
-            var instructionToLabel = {};
             while (true) {
                 var token = stream.next();
                 if (token.type == wee.TokenType.EndOfFile) {
@@ -81,7 +90,6 @@ var wee;
                     else {
                         labels[token.value] = label;
                     }
-                    instructionToLabel[label.index] = label;
                     continue;
                 }
                 if (token.value == "byte" || token.value == "short" || token.value == "integer" || token.value == "float" || token.value == "string") {
@@ -281,17 +289,26 @@ var wee;
                 diagnostics.push(new wee.Diagnostic(wee.Severity.Error, token.range, "Expected a label, data definition or instruction, got " + token.value));
                 break;
             }
-            return new ParserResult(instructions, labels, instructionToLabel, diagnostics);
+            return new ParserResult(instructions, labels, diagnostics);
         };
-        Assembler.prototype.emit = function (instructions, diagnostics) {
+        Assembler.prototype.emit = function (instructions, labels, diagnostics) {
             var buffer = new ArrayBuffer(16 * 1024 * 1024);
             var view = new DataView(buffer);
             var address = 0;
+            var patches = new Array();
             for (var i = 0; i < instructions.length; i++) {
                 var instruction = instructions[i];
-                address = instruction.emit(view, address, diagnostics);
+                address = instruction.emit(view, address, patches, diagnostics);
             }
-            return new Uint8Array(buffer);
+            for (var i = 0; i < patches.length; i++) {
+                var patch = patches[i];
+                var label = labels[patch.label.value];
+                if (label) {
+                    var address_1 = instructions[label.instructionIndex].address;
+                    view.setUint32(patch.address, address_1);
+                }
+            }
+            return new AssemblerResult(new Uint8Array(buffer), instructions, labels, patches, diagnostics);
         };
         Assembler.getRegisterIndex = function (reg) {
             if (reg.type != wee.TokenType.Register)
@@ -300,7 +317,10 @@ var wee;
                 return 14;
             if (reg.value == "sp")
                 return 15;
-            return parseInt(reg.value.substr(1));
+            var index = parseInt(reg.value.substr(1));
+            if (index < 0 || index > 15)
+                throw new Error("Unknown register name " + reg.value);
+            return index;
         };
         Assembler.encodeOpRegRegReg = function (op, reg1, reg2, reg3) {
             return (op & 0x1f) |
@@ -322,14 +342,24 @@ var wee;
         return Assembler;
     }());
     wee.Assembler = Assembler;
+    var Patch = (function () {
+        function Patch(address, label) {
+            this.address = address;
+            this.label = label;
+        }
+        ;
+        return Patch;
+    }());
+    wee.Patch = Patch;
     var Label = (function () {
-        function Label(token, index) {
+        function Label(token, instructionIndex) {
             this.token = token;
-            this.index = index;
+            this.instructionIndex = instructionIndex;
         }
         ;
         return Label;
     }());
+    wee.Label = Label;
     ;
     var Data = (function () {
         function Data(type, value) {
@@ -337,7 +367,7 @@ var wee;
             this.value = value;
         }
         ;
-        Data.prototype.emit = function (view, address, diagnostics) {
+        Data.prototype.emit = function (view, address, patches, diagnostics) {
             this.address = address;
             if (this.type.value == "byte") {
                 view.setUint8(address++, this.value.value & 0xff);
@@ -375,7 +405,7 @@ var wee;
             this.token = token;
         }
         ;
-        Halt.prototype.emit = function (view, address, diagnostics) {
+        Halt.prototype.emit = function (view, address, patches, diagnostics) {
             this.address = address;
             view.setUint32(address, 0);
             return address + 4;
@@ -390,7 +420,7 @@ var wee;
             this.operand3 = operand3;
         }
         ;
-        ArithmeticInstruction.prototype.emit = function (view, address, diagnostics) {
+        ArithmeticInstruction.prototype.emit = function (view, address, patches, diagnostics) {
             this.address = address;
             var op1 = Assembler.getRegisterIndex(this.operand1);
             var op2 = Assembler.getRegisterIndex(this.operand2);
@@ -455,7 +485,7 @@ var wee;
             this.operand3 = operand3;
         }
         ;
-        BitwiseInstruction.prototype.emit = function (view, address, diagnostics) {
+        BitwiseInstruction.prototype.emit = function (view, address, patches, diagnostics) {
             this.address = address;
             var op1 = Assembler.getRegisterIndex(this.operand1);
             var op2 = Assembler.getRegisterIndex(this.operand2);
@@ -489,7 +519,7 @@ var wee;
             this.operand2 = operand2;
         }
         ;
-        JumpInstruction.prototype.emit = function (view, address, diagnostics) {
+        JumpInstruction.prototype.emit = function (view, address, patches, diagnostics) {
             this.address = address;
             if (this.branchType.value == "jump") {
                 view.setUint32(address, 0x1c);
@@ -499,19 +529,13 @@ var wee;
                 }
                 else {
                     view.setUint32(address, 0xdeadbeaf);
+                    patches.push(new Patch(address, this.operand1));
                 }
                 return address + 4;
             }
             else {
                 var op1 = Assembler.getRegisterIndex(this.operand1);
                 var opcode = 0;
-                var targetAddress = 0;
-                if (this.operand2.type == wee.TokenType.IntegerLiteral) {
-                    targetAddress = this.operand2.value;
-                }
-                else {
-                    targetAddress = 0xdeadbeaf;
-                }
                 if (this.branchType.value == "jump_equal")
                     opcode = 0x1d;
                 else if (this.branchType.value == "jump_not_equal")
@@ -528,7 +552,15 @@ var wee;
                     diagnostics.push(new wee.Diagnostic(wee.Severity.Error, this.branchType.range, "Unknown jump/branch instruction " + this.branchType.value));
                     return address;
                 }
-                view.setUint32(address, Assembler.encodeOpRegNum(opcode, op1, targetAddress));
+                view.setUint32(address, Assembler.encodeOpRegNum(opcode, op1, 0));
+                address += 4;
+                if (this.operand2.type == wee.TokenType.IntegerLiteral) {
+                    view.setUint32(address, this.operand2.value);
+                }
+                else {
+                    view.setUint32(address, 0xdeadbeaf);
+                    patches.push(new Patch(address, this.operand2));
+                }
                 return address + 4;
             }
         };
@@ -537,13 +569,123 @@ var wee;
     var MemoryInstruction = (function () {
         function MemoryInstruction(operation, operand1, operand2, operand3) {
             this.operation = operation;
+            this.operand1 = operand1;
             this.operand2 = operand2;
             this.operand3 = operand3;
         }
         ;
-        MemoryInstruction.prototype.emit = function (view, address, diagnostics) {
+        MemoryInstruction.prototype.emit = function (view, address, patches, diagnostics) {
             this.address = address;
-            return 0;
+            if (this.operation.value == "move") {
+                var op2 = Assembler.getRegisterIndex(this.operand2);
+                if (this.operand1.type == wee.TokenType.Register) {
+                    var op1 = Assembler.getRegisterIndex(this.operand1);
+                    view.setUint32(address, Assembler.encodeOpRegRegNum(0x23, op1, op2, 0));
+                }
+                else if (this.operand1.type == wee.TokenType.IntegerLiteral) {
+                    var op1 = this.operand1.value;
+                    view.setUint32(address, Assembler.encodeOpRegRegNum(0x24, 0, op2, 0));
+                    address += 4;
+                    view.setUint32(address, op1);
+                }
+                else if (this.operand1.type == wee.TokenType.FloatLiteral) {
+                    var op1 = this.operand1.value;
+                    view.setUint32(address, Assembler.encodeOpRegRegNum(0x24, 0, op2, 0));
+                    address += 4;
+                    view.setFloat32(address, op1);
+                }
+                else if (this.operand1.type == wee.TokenType.Identifier) {
+                    view.setUint32(address, Assembler.encodeOpRegRegNum(0x24, 0, op2, 0));
+                    address += 4;
+                    view.setUint32(address, 0xdeadbeaf);
+                    patches.push(new Patch(address, this.operand1));
+                }
+                else {
+                    diagnostics.push(new wee.Diagnostic(wee.Severity.Error, this.operation.range, "Memory instruction " + this.operation.value + " only operates on registers, float literals, integer litaterals or labels"));
+                    return address;
+                }
+            }
+            else if (this.operation.value == "load" || this.operation.value == "load_byte" || this.operation.value == "load_short") {
+                var offset = this.operand2.value;
+                var op2 = Assembler.getRegisterIndex(this.operand3);
+                if (this.operand1.type == wee.TokenType.Register) {
+                    var op1 = Assembler.getRegisterIndex(this.operand1);
+                    var opcode = 0;
+                    if (this.operation.value == "load")
+                        opcode = 0x26;
+                    else if (this.operation.value == "load_byte")
+                        opcode = 0x2a;
+                    else if (this.operation.value == "load_short")
+                        opcode = 0x2e;
+                    view.setUint32(address, Assembler.encodeOpRegRegNum(opcode, op1, op2, offset));
+                }
+                else if (this.operand1.type == wee.TokenType.IntegerLiteral || this.operand1.type == wee.TokenType.Identifier) {
+                    var opcode = 0;
+                    if (this.operation.value == "load")
+                        opcode = 0x25;
+                    else if (this.operation.value == "load_byte")
+                        opcode = 0x29;
+                    else if (this.operation.value == "load_short")
+                        opcode = 0x2d;
+                    view.setUint32(address, Assembler.encodeOpRegRegNum(opcode, 0, op2, offset));
+                    address += 4;
+                    if (this.operand1.type == wee.TokenType.IntegerLiteral) {
+                        var op1 = this.operand1.value;
+                        view.setUint32(address, op1);
+                    }
+                    else {
+                        view.setUint32(address, 0xdeadbeaf);
+                        patches.push(new Patch(address, this.operand1));
+                    }
+                }
+                else {
+                    diagnostics.push(new wee.Diagnostic(wee.Severity.Error, this.operation.range, "Memory instruction " + this.operation.value + " only operates on registers, integer litaterals or labels"));
+                    return address;
+                }
+            }
+            else if (this.operation.value == "store" || this.operation.value == "store_byte" || this.operation.value == "store_short") {
+                var offset = this.operand3.value;
+                var op1 = Assembler.getRegisterIndex(this.operand1);
+                if (this.operand2.type == wee.TokenType.Register) {
+                    var op2 = Assembler.getRegisterIndex(this.operand2);
+                    var opcode = 0;
+                    if (this.operation.value == "store")
+                        opcode = 0x28;
+                    else if (this.operation.value == "store_byte")
+                        opcode = 0x2c;
+                    else if (this.operation.value == "store_short")
+                        opcode = 0x30;
+                    view.setUint32(address, Assembler.encodeOpRegRegNum(opcode, op1, op2, offset));
+                }
+                else if (this.operand2.type == wee.TokenType.IntegerLiteral || this.operand2.type == wee.TokenType.Identifier) {
+                    var opcode = 0;
+                    if (this.operation.value == "store")
+                        opcode = 0x27;
+                    else if (this.operation.value == "store_byte")
+                        opcode = 0x2b;
+                    else if (this.operation.value == "store_short")
+                        opcode = 0x2f;
+                    view.setUint32(address, Assembler.encodeOpRegRegNum(opcode, op1, 0, offset));
+                    address += 4;
+                    if (this.operand2.type == wee.TokenType.IntegerLiteral) {
+                        var op2 = this.operand2.value;
+                        view.setUint32(address, op2);
+                    }
+                    else {
+                        view.setUint32(address, 0xdeadbeaf);
+                        patches.push(new Patch(address, this.operand2));
+                    }
+                }
+                else {
+                    diagnostics.push(new wee.Diagnostic(wee.Severity.Error, this.operation.range, "Memory instruction " + this.operation.value + " only operates on registers, integer litaterals or labels"));
+                    return address;
+                }
+            }
+            else {
+                diagnostics.push(new wee.Diagnostic(wee.Severity.Error, this.operation.range, "Unknown memory instruction " + this.operation.value + "."));
+                return address;
+            }
+            return address + 4;
         };
         return MemoryInstruction;
     }());
@@ -553,7 +695,7 @@ var wee;
             this.operand1 = operand1;
         }
         ;
-        StackOrCallInstruction.prototype.emit = function (view, address, diagnostics) {
+        StackOrCallInstruction.prototype.emit = function (view, address, patches, diagnostics) {
             this.address = address;
             if (this.operation.value == "push") {
                 if (this.operand1.type == wee.TokenType.Register) {
@@ -574,6 +716,7 @@ var wee;
                     view.setUint32(address, Assembler.encodeOpRegNum(0x31, 0, 0));
                     address += 4;
                     view.setUint32(address, 0xdeadbeaf);
+                    patches.push(new Patch(address, this.operand1));
                 }
             }
             else if (this.operation.value == "stackalloc") {
@@ -607,6 +750,7 @@ var wee;
                     view.setUint32(address, Assembler.encodeOpRegNum(0x36, 0, 0));
                     address += 4;
                     view.setUint32(address, 0xdeadbeaf);
+                    patches.push(new Patch(address, this.operand1));
                 }
             }
             else if (this.operation.value == "return") {
@@ -627,7 +771,7 @@ var wee;
             this.operand2 = operand2;
         }
         ;
-        PortInstruction.prototype.emit = function (view, address, diagnostics) {
+        PortInstruction.prototype.emit = function (view, address, patches, diagnostics) {
             this.address = address;
             if (this.operation.value == "port_write") {
                 if (this.operand2.type == wee.TokenType.IntegerLiteral) {
@@ -639,17 +783,18 @@ var wee;
                     else if (this.operand1.type == wee.TokenType.IntegerLiteral) {
                         view.setUint32(address, Assembler.encodeOpRegRegNum(0x3a, 0, 0, portNumber));
                         address += 4;
-                        view.setUint32(address, this.operand2.value);
+                        view.setUint32(address, this.operand1.value);
                     }
                     else if (this.operand1.type == wee.TokenType.FloatLiteral) {
                         view.setUint32(address, Assembler.encodeOpRegRegNum(0x3a, 0, 0, portNumber));
                         address += 4;
-                        view.setFloat32(address, this.operand2.value);
+                        view.setFloat32(address, this.operand1.value);
                     }
                     else if (this.operand1.type == wee.TokenType.Identifier) {
                         view.setUint32(address, Assembler.encodeOpRegRegNum(0x3a, 0, 0, portNumber));
                         address += 4;
                         view.setUint32(address, 0xdeadbeaf);
+                        patches.push(new Patch(address, this.operand1));
                     }
                 }
                 else {
@@ -708,10 +853,10 @@ var wee;
     wee.Range = Range;
     var Severity;
     (function (Severity) {
-        Severity["Debug"] = "Debug";
-        Severity["Info"] = "Info";
-        Severity["Warning"] = "Warning";
-        Severity["Error"] = "Error";
+        Severity[Severity["Debug"] = "Debug"] = "Debug";
+        Severity[Severity["Info"] = "Info"] = "Info";
+        Severity[Severity["Warning"] = "Warning"] = "Warning";
+        Severity[Severity["Error"] = "Error"] = "Error";
     })(Severity = wee.Severity || (wee.Severity = {}));
     var Diagnostic = (function () {
         function Diagnostic(severity, range, message) {
@@ -746,16 +891,16 @@ var wee;
 (function (wee) {
     var TokenType;
     (function (TokenType) {
-        TokenType["IntegerLiteral"] = "IntegerLiteral";
-        TokenType["FloatLiteral"] = "FloatLiteral";
-        TokenType["StringLiteral"] = "StringLiteral";
-        TokenType["Identifier"] = "Identifier";
-        TokenType["Opcode"] = "Opcode";
-        TokenType["Keyword"] = "Keyword";
-        TokenType["Register"] = "Register";
-        TokenType["Colon"] = "Colon";
-        TokenType["Coma"] = "Coma";
-        TokenType["EndOfFile"] = "EndOfFile";
+        TokenType[TokenType["IntegerLiteral"] = "IntegerLiteral"] = "IntegerLiteral";
+        TokenType[TokenType["FloatLiteral"] = "FloatLiteral"] = "FloatLiteral";
+        TokenType[TokenType["StringLiteral"] = "StringLiteral"] = "StringLiteral";
+        TokenType[TokenType["Identifier"] = "Identifier"] = "Identifier";
+        TokenType[TokenType["Opcode"] = "Opcode"] = "Opcode";
+        TokenType[TokenType["Keyword"] = "Keyword"] = "Keyword";
+        TokenType[TokenType["Register"] = "Register"] = "Register";
+        TokenType[TokenType["Colon"] = "Colon"] = "Colon";
+        TokenType[TokenType["Coma"] = "Coma"] = "Coma";
+        TokenType[TokenType["EndOfFile"] = "EndOfFile"] = "EndOfFile";
     })(TokenType = wee.TokenType || (wee.TokenType = {}));
     var Token = (function () {
         function Token(range, type, value) {
@@ -984,6 +1129,28 @@ var wee;
 (function (wee) {
     var tests;
     (function (tests) {
+        var Address = (function () {
+            function Address(address) {
+                this.address = address;
+            }
+            ;
+            Address.prototype.nextInt = function () {
+                var result = this.address;
+                this.address += 4;
+                return result;
+            };
+            Address.prototype.nextByte = function () {
+                var result = this.address;
+                this.address += 1;
+                return result;
+            };
+            Address.prototype.nextShort = function () {
+                var result = this.address;
+                this.address += 2;
+                return result;
+            };
+            return Address;
+        }());
         function assert(expression, errorMessage) {
             if (!expression) {
                 console.log(errorMessage);
@@ -1020,24 +1187,151 @@ var wee;
         }
         function testAssembler() {
             var assembler = new wee.Assembler();
-            var memory = assembler.assemble("\n\t\t\tbyte 0\n\t\t\tbyte 1\n\t\t\tbyte 2\n\t\t\tbyte 3\n\t\t\tbyte -123\n\t\t\tshort 0xabcd\n\t\t\tshort -1234\n\t\t\tinteger 0xaabbccdd\n\t\t\tinteger -123456\n\t\t\tfloat 3.299999952316284\n\t\t\tstring \"Hello world\"\n\t\t\thalt\n\t\t");
-            var view = new DataView(memory.buffer);
-            assert(view.getInt8(0) == 0, "Expected 0");
-            assert(view.getInt8(1) == 1, "Expected 1");
-            assert(view.getInt8(2) == 2, "Expected 2");
-            assert(view.getInt8(3) == 3, "Expected 3");
-            assert(view.getInt8(4) == -123, "Expected -123");
-            assert(view.getUint16(5) == 0xabcd, "Expected 0xabcd");
-            assert(view.getInt16(7) == -1234, "Expected -1234");
-            assert(view.getUint32(9) == 0xaabbccdd, "Expected 0xaabbccdd");
-            assert(view.getInt32(13) == -123456, "Expected 123456");
-            assert(view.getFloat32(17) == 3.299999952316284, "Expected 3.3");
-            var string = "Hello world";
-            for (var i = 21, j = 0; j < string.length; i++, j++) {
-                assert(view.getUint8(i) == string.charCodeAt(j), "Expected " + string.charAt(j));
+            var result = assembler.assemble("\n\t\t\tbyte 0\n\t\t\tbyte 1\n\t\t\tbyte 2\n\t\t\tbyte 3\n\t\t\tbyte -123\n\t\t\tshort 0xabcd\n\t\t\tshort -1234\n\t\t\tinteger 0xaabbccdd\n\t\t\tinteger -123456\n\t\t\tfloat 3.299999952316284\n\t\t\tstring \"Hello world\"\n\n\t\t\thalt\n\n\t\t\tadd sp, pc, r7\n\t\t\tsub r0, r1, r2\n\t\t\tmul r0, r1, r2\n\t\t\tdiv r0, r1, r2\n\t\t\tdiv_unsigned r0, r1, r2\n\t\t\tremainder r0, r1, r2\n\t\t\tremainder_unsigned r0, r1, r2\n\t\t\tadd_float r0, r1, r2\n\t\t\tsub_float r0, r1, r2\n\t\t\tmul_float r0, r1, r2\n\t\t\tdiv_float r0, r1, r2\n\t\t\tcos_float r0, r1\n\t\t\tsin_float r0, r1\n\t\t\tatan2_float r0, r1, r2\n\t\t\tsqrt_float r0, r1\n\t\t\tpow_float r0, r1\n\t\t\tconvert_int_float r0, r1\n\t\t\tconvert_float_int r0, r1\n\t\t\tcmp r0, r1, r2\n\t\t\tcmp_unsigned r0, r1, r2\n\t\t\tfcmp r0, r1, r2\n\n\t\t\tnot r0, r1\n\t\t\tand r0, r1, r2\n\t\t\tor r0, r1, r2\n\t\t\txor r0, r1, r2\n\t\t\tshift_left r0, r1, r2\n\t\t\tshift_right r0, r1, r2\n\n\t\t\tjump 0xffffffff\n\t\t\tjump -1\n\t\t\tTARGET_JMP: jump TARGET_JMP\n\t\t\tjump_equal r0, 1234\n\t\t\tTARGET_JMP_EQUAL: jump_equal r0, TARGET_JMP_EQUAL\n\t\t\tjump_not_equal r0, 1234\n\t\t\tTARGET_JMP_NOT_EQUAL: jump_not_equal r0, TARGET_JMP_NOT_EQUAL\n\t\t\tjump_less r0, 1234\n\t\t\tTARGET_JMP_LESS: jump_less r0, TARGET_JMP_LESS\n\t\t\tjump_greater r0, 1234\n\t\t\tTARGET_JMP_GREATER: jump_greater r0, TARGET_JMP_GREATER\n\t\t\tjump_less_equal r0, 1234\n\t\t\tTARGET_JMP_LESS_EQUAL: jump_less_equal r0, TARGET_JMP_LESS_EQUAL\n\t\t\tjump_greater_equal r0, 1234\n\t\t\tTARGET_JMP_GREATER_EQUAL: jump_greater_equal r0, TARGET_JMP_GREATER_EQUAL\n\n\t\t\tmove r0, r1\n\t\t\tmove -1234, r0\n\t\t\tmove 1.234, r0\n\t\t\tTARGET_MOVE: move TARGET_MOVE, r0\n\t\t\tload r0, 15, r1\n\t\t\tload 1234, 15, r1\n\t\t\tTARGET_LOAD: load TARGET_LOAD, 15, r1\n\t\t\tstore r0, r1, 15\n\t\t\tstore r0, 1234, 15\n\t\t\tTARGET_STORE: store r0, TARGET_STORE, 15\n\t\t\tload_byte r0, 15, r1\n\t\t\tload_byte 1234, 15, r1\n\t\t\tTARGET_LOAD_BYTE: load_byte TARGET_LOAD_BYTE, 15, r1\n\t\t\tstore_byte r0, r1, 15\n\t\t\tstore_byte r0, 1234, 15\n\t\t\tTARGET_STORE_BYTE: store_byte r0, TARGET_STORE_BYTE, 15\n\t\t\tload_short r0, 15, r1\n\t\t\tload_short 1234, 15, r1\n\t\t\tTARGET_LOAD_SHORT: load_short TARGET_LOAD_SHORT, 15, r1\n\t\t\tstore_short r0, r1, 15\n\t\t\tstore_short r0, 1234, 15\n\t\t\tTARGET_STORE_SHORT: store_short r0, TARGET_STORE_SHORT, 15\n\n\t\t\tpush 1234\n\t\t\tpush 1.234\n\t\t\tTARGET_PUSH: push TARGET_PUSH\n\t\t\tpush r0\n\t\t\tstackalloc 123\n\t\t\tpop r0\n\t\t\tpop 123\n\t\t\tcall 1234\n\t\t\tTARGET_CALL: call TARGET_CALL\n\t\t\tcall r2\n\t\t\treturn 123\n\n\t\t\tport_write r2, 123\n\t\t\tport_write 1234, 123\n\t\t\tport_write 1.234, 123\n\t\t\tTARGET_PORT_WRITE: port_write TARGET_PORT_WRITE, 123\n\t\t\tport_write r2, r3\n\t\t\tport_read 123, r3\n\t\t\tport_read r2, r3\n\t\t");
+            var memory = result.code;
+            if (result.diagnostics.length != 0) {
+                for (var i = 0; i < result.diagnostics.length; i++)
+                    console.log(result.diagnostics[i].toString());
+                assert(false, "Error assembling test.");
             }
-            assert(view.getUint8(32) == 0, "Expected 0");
-            assert(view.getUint32(33) == 0, "Expected 0");
+            var view = new DataView(memory.buffer);
+            var addr = new Address(0);
+            assert(view.getInt8(addr.nextByte()) == 0, "Expected 0");
+            assert(view.getInt8(addr.nextByte()) == 1, "Expected 1");
+            assert(view.getInt8(addr.nextByte()) == 2, "Expected 2");
+            assert(view.getInt8(addr.nextByte()) == 3, "Expected 3");
+            assert(view.getInt8(addr.nextByte()) == -123, "Expected -123");
+            assert(view.getUint16(addr.nextShort()) == 0xabcd, "Expected 0xabcd");
+            assert(view.getInt16(addr.nextShort()) == -1234, "Expected -1234");
+            assert(view.getUint32(addr.nextInt()) == 0xaabbccdd, "Expected 0xaabbccdd");
+            assert(view.getInt32(addr.nextInt()) == -123456, "Expected 123456");
+            assert(view.getFloat32(addr.nextInt()) == 3.299999952316284, "Expected 3.3");
+            var string = "Hello world";
+            for (var i = 0; i < string.length; i++) {
+                assert(view.getUint8(addr.nextByte()) == string.charCodeAt(i), "Expected " + string.charAt(i));
+            }
+            assert(view.getUint8(addr.nextByte()) == 0, "Expected 0");
+            assert(view.getUint32(addr.nextInt()) == 0, "Expected 0");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegReg(0x01, 15, 14, 7), "Invalid add");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegReg(0x02, 0, 1, 2), "Invalid sub");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegReg(0x03, 0, 1, 2), "Invalid mul");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegReg(0x04, 0, 1, 2), "Invalid div");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegReg(0x05, 0, 1, 2), "Invalid div_unsigned");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegReg(0x06, 0, 1, 2), "Invalid remainder");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegReg(0x07, 0, 1, 2), "Invalid remainder_unsigned");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegReg(0x08, 0, 1, 2), "Invalid add_float");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegReg(0x09, 0, 1, 2), "Invalid sub_float");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegReg(0x0a, 0, 1, 2), "Invalid mul_float");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegReg(0x0b, 0, 1, 2), "Invalid div_float");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegReg(0x0c, 0, 1, 0), "Invalid cos_float");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegReg(0x0d, 0, 1, 0), "Invalid sin_float");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegReg(0x0e, 0, 1, 2), "Invalid atan2_float");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegReg(0x0f, 0, 1, 0), "Invalid sqrt_float");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegReg(0x10, 0, 1, 0), "Invalid pow_float");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegReg(0x11, 0, 1, 0), "Invalid convert_int_float");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegReg(0x12, 0, 1, 0), "Invalid convert_float_int");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegReg(0x13, 0, 1, 2), "Invalid cmp");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegReg(0x14, 0, 1, 2), "Invalid cmp_unsigned");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegReg(0x15, 0, 1, 2), "Invalid fcmp");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegReg(0x16, 0, 1, 0), "Invalid not");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegReg(0x17, 0, 1, 2), "Invalid not");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegReg(0x18, 0, 1, 2), "Invalid not");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegReg(0x19, 0, 1, 2), "Invalid not");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegReg(0x1a, 0, 1, 2), "Invalid not");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegReg(0x1b, 0, 1, 2), "Invalid not");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegReg(0x1c, 0, 0, 0), "Invalid jmp");
+            assert(view.getUint32(addr.nextInt()) == 0xffffffff, "Invalid jmp");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegReg(0x1c, 0, 0, 0), "Invalid jmp");
+            assert(view.getInt32(addr.nextInt()) == -1, "Invalid jmp");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegReg(0x1c, 0, 0, 0), "Invalid jmp");
+            assert(view.getUint32(addr.nextInt()) == addr.address - 8, "Invalid jmp");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegReg(0x1d, 0, 0, 0), "Invalid jmp_equal");
+            assert(view.getInt32(addr.nextInt()) == 1234, "Invalid jmp_equal");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegReg(0x1d, 0, 0, 0), "Invalid jmp_equal");
+            assert(view.getUint32(addr.nextInt()) == addr.address - 8, "Invalid jmp_equal");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegReg(0x1e, 0, 0, 0), "Invalid jmp_not_equal");
+            assert(view.getInt32(addr.nextInt()) == 1234, "Invalid jmp_not_equal");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegReg(0x1e, 0, 0, 0), "Invalid jmp_not_equal");
+            assert(view.getUint32(addr.nextInt()) == addr.address - 8, "Invalid jmp_not_equal");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegReg(0x1f, 0, 0, 0), "Invalid jmp_less");
+            assert(view.getInt32(addr.nextInt()) == 1234, "Invalid jmp_less");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegReg(0x1f, 0, 0, 0), "Invalid jmp_less");
+            assert(view.getUint32(addr.nextInt()) == addr.address - 8, "Invalid jmp_less");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegReg(0x20, 0, 0, 0), "Invalid jmp_greater");
+            assert(view.getInt32(addr.nextInt()) == 1234, "Invalid jmp_greater");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegReg(0x20, 0, 0, 0), "Invalid jmp_greater");
+            assert(view.getUint32(addr.nextInt()) == addr.address - 8, "Invalid jmp_greater");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegReg(0x21, 0, 0, 0), "Invalid jmp_less_equal");
+            assert(view.getInt32(addr.nextInt()) == 1234, "Invalid jmp_less_equal");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegReg(0x21, 0, 0, 0), "Invalid jmp_less_equal");
+            assert(view.getUint32(addr.nextInt()) == addr.address - 8, "Invalid jmp_less_eqaul");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegReg(0x22, 0, 0, 0), "Invalid jmp_greater_equal");
+            assert(view.getInt32(addr.nextInt()) == 1234, "Invalid jmp_greater_equal");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegReg(0x22, 0, 0, 0), "Invalid jmp_greater_equal");
+            assert(view.getUint32(addr.nextInt()) == addr.address - 8, "Invalid jmp_greater_eqaul");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegNum(0x23, 0, 1, 0), "Invalid move");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegNum(0x24, 0, 0, 0), "Invalid move");
+            assert(view.getInt32(addr.nextInt()) == -1234, "Invalid move");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegNum(0x24, 0, 0, 0), "Invalid move");
+            assert(view.getFloat32(addr.nextInt()) == 1.2339999675750732, "Invalid move");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegNum(0x24, 0, 0, 0), "Invalid move");
+            assert(view.getUint32(addr.nextInt()) == addr.address - 8, "Invalid move");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegNum(0x26, 0, 1, 15), "Invalid load");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegNum(0x25, 0, 1, 15), "Invalid load");
+            assert(view.getUint32(addr.nextInt()) == 1234, "Invalid load");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegNum(0x25, 0, 1, 15), "Invalid load");
+            assert(view.getUint32(addr.nextInt()) == addr.address - 8, "Invalid load");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegNum(0x28, 0, 1, 15), "Invalid store");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegNum(0x27, 0, 0, 15), "Invalid store");
+            assert(view.getUint32(addr.nextInt()) == 1234, "Invalid store");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegNum(0x27, 0, 0, 15), "Invalid store");
+            assert(view.getUint32(addr.nextInt()) == addr.address - 8, "Invalid store");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegNum(0x2a, 0, 1, 15), "Invalid load_byte");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegNum(0x29, 0, 1, 15), "Invalid load_byte");
+            assert(view.getUint32(addr.nextInt()) == 1234, "Invalid load_byte");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegNum(0x29, 0, 1, 15), "Invalid load_byte");
+            assert(view.getUint32(addr.nextInt()) == addr.address - 8, "Invalid load_byte");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegNum(0x2c, 0, 1, 15), "Invalid store_byte");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegNum(0x2b, 0, 0, 15), "Invalid store_byte");
+            assert(view.getUint32(addr.nextInt()) == 1234, "Invalid store_byte");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegNum(0x2b, 0, 0, 15), "Invalid store_byte");
+            assert(view.getUint32(addr.nextInt()) == addr.address - 8, "Invalid store_byte");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegNum(0x2e, 0, 1, 15), "Invalid load_short");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegNum(0x2d, 0, 1, 15), "Invalid load_short");
+            assert(view.getUint32(addr.nextInt()) == 1234, "Invalid load_short");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegNum(0x2d, 0, 1, 15), "Invalid load_short");
+            assert(view.getUint32(addr.nextInt()) == addr.address - 8, "Invalid load_short");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegNum(0x30, 0, 1, 15), "Invalid store_short");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegNum(0x2f, 0, 0, 15), "Invalid store_short");
+            assert(view.getUint32(addr.nextInt()) == 1234, "Invalid store_short");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegNum(0x2f, 0, 0, 15), "Invalid store_short");
+            assert(view.getUint32(addr.nextInt()) == addr.address - 8, "Invalid store_short");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegNum(0x31, 0, 0), "Invalid push");
+            assert(view.getUint32(addr.nextInt()) == 1234, "Invalid push");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegNum(0x31, 0, 0), "Invalid push");
+            assert(view.getFloat32(addr.nextInt()) == 1.2339999675750732, "Invalid push");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegNum(0x31, 0, 0), "Invalid push");
+            assert(view.getUint32(addr.nextInt()) == addr.address - 8, "Invalid push");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegNum(0x32, 0, 0), "Invalid push");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegNum(0x33, 0, 123), "Invalid stackalloc");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegNum(0x34, 0, 0), "Invalid pop");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegNum(0x35, 0, 123), "Invalid pop");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegNum(0x36, 0, 0), "Invalid call");
+            assert(view.getUint32(addr.nextInt()) == 1234, "Invalid call");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegNum(0x36, 0, 0), "Invalid call");
+            assert(view.getUint32(addr.nextInt()) == addr.address - 8, "Invalid call");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegNum(0x37, 2, 0), "Invalid call");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegNum(0x38, 0, 123), "Invalid call");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegNum(0x39, 2, 0, 123), "Invalid port_write");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegNum(0x3a, 0, 0, 123), "Invalid port_write");
+            assert(view.getUint32(addr.nextInt()) == 1234, "Invalid port_write");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegNum(0x3a, 0, 0, 123), "Invalid port_write");
+            assert(view.getFloat32(addr.nextInt()) == 1.2339999675750732, "Invalid port_write");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegNum(0x3a, 0, 0, 123), "Invalid port_write");
+            assert(view.getUint32(addr.nextInt()) == addr.address - 8, "Invalid port_write");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegNum(0x3b, 2, 3, 0), "Invalid port_write");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegNum(0x3c, 3, 0, 123), "Invalid port_read");
+            assert(view.getUint32(addr.nextInt()) == wee.Assembler.encodeOpRegRegNum(0x3d, 2, 3, 0), "Invalid port_read");
             console.log(memory);
         }
     })(tests = wee.tests || (wee.tests = {}));

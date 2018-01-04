@@ -8,89 +8,39 @@ declare module wee {
     class ParserResult {
         instructions: Array<Instruction>;
         labels: StringMap<Label>;
-        instructionToLabel: IndexedMap<Label>;
         diagnostics: Array<Diagnostic>;
-        constructor(instructions: Array<Instruction>, labels: StringMap<Label>, instructionToLabel: IndexedMap<Label>, diagnostics: Array<Diagnostic>);
+        constructor(instructions: Array<Instruction>, labels: StringMap<Label>, diagnostics: Array<Diagnostic>);
+    }
+    class AssemblerResult {
+        code: Uint8Array;
+        instructions: Array<Instruction>;
+        labels: StringMap<Label>;
+        patches: Array<Patch>;
+        diagnostics: Array<Diagnostic>;
+        constructor(code: Uint8Array, instructions: Array<Instruction>, labels: StringMap<Label>, patches: Array<Patch>, diagnostics: Array<Diagnostic>);
     }
     class Assembler {
-        assemble(source: string): Uint8Array;
+        assemble(source: string): AssemblerResult;
         parse(tokens: Array<Token>): ParserResult;
-        emit(instructions: Array<Instruction>, diagnostics: Array<Diagnostic>): Uint8Array;
+        emit(instructions: Array<Instruction>, labels: StringMap<Label>, diagnostics: Array<Diagnostic>): AssemblerResult;
         static getRegisterIndex(reg: Token): number;
         static encodeOpRegRegReg(op: number, reg1: number, reg2: number, reg3: number): number;
         static encodeOpRegNum(op: number, reg: number, num: number): number;
         static encodeOpRegRegNum(op: number, reg1: number, reg2: number, num: number): number;
     }
+    class Patch {
+        address: number;
+        label: Token;
+        constructor(address: number, label: Token);
+    }
     class Label {
         token: Token;
-        index: number;
-        constructor(token: Token, index: number);
+        instructionIndex: number;
+        constructor(token: Token, instructionIndex: number);
     }
     interface Instruction {
         address: number;
-        emit(view: DataView, address: number, diagnostics: Array<Diagnostic>): number;
-    }
-    class Data implements Instruction {
-        type: Token;
-        value: Token;
-        address: number;
-        constructor(type: Token, value: Token);
-        emit(view: DataView, address: number, diagnostics: Array<Diagnostic>): number;
-    }
-    class Halt implements Instruction {
-        token: Token;
-        address: number;
-        constructor(token: Token);
-        emit(view: DataView, address: number, diagnostics: Array<Diagnostic>): number;
-    }
-    class ArithmeticInstruction implements Instruction {
-        operation: Token;
-        operand1: Token;
-        operand2: Token;
-        operand3: Token;
-        address: number;
-        constructor(operation: Token, operand1: Token, operand2: Token, operand3: Token);
-        emit(view: DataView, address: number, diagnostics: Array<Diagnostic>): number;
-    }
-    class BitwiseInstruction implements Instruction {
-        operation: Token;
-        operand1: Token;
-        operand2: Token;
-        operand3: Token;
-        address: number;
-        constructor(operation: Token, operand1: Token, operand2: Token, operand3: Token);
-        emit(view: DataView, address: number, diagnostics: Array<Diagnostic>): number;
-    }
-    class JumpInstruction implements Instruction {
-        branchType: Token;
-        operand1: Token;
-        operand2: Token;
-        address: number;
-        constructor(branchType: Token, operand1: Token, operand2: Token);
-        emit(view: DataView, address: number, diagnostics: Array<Diagnostic>): number;
-    }
-    class MemoryInstruction implements Instruction {
-        operation: Token;
-        operand2: Token;
-        operand3: Token;
-        address: number;
-        constructor(operation: Token, operand1: Token, operand2: Token, operand3: Token);
-        emit(view: DataView, address: number, diagnostics: Array<Diagnostic>): number;
-    }
-    class StackOrCallInstruction implements Instruction {
-        operation: Token;
-        operand1: Token;
-        address: number;
-        constructor(operation: Token, operand1: Token);
-        emit(view: DataView, address: number, diagnostics: Array<Diagnostic>): number;
-    }
-    class PortInstruction implements Instruction {
-        operation: Token;
-        operand1: Token;
-        operand2: Token;
-        address: number;
-        constructor(operation: Token, operand1: Token, operand2: Token);
-        emit(view: DataView, address: number, diagnostics: Array<Diagnostic>): number;
+        emit(view: DataView, address: number, patches: Array<Patch>, diagnostics: Array<Diagnostic>): number;
     }
 }
 declare module wee {
@@ -108,10 +58,10 @@ declare module wee {
         length(): number;
     }
     enum Severity {
-        Debug = "Debug",
-        Info = "Info",
-        Warning = "Warning",
-        Error = "Error",
+        Debug,
+        Info,
+        Warning,
+        Error,
     }
     class Diagnostic {
         severity: Severity;
@@ -123,16 +73,16 @@ declare module wee {
 }
 declare module wee {
     enum TokenType {
-        IntegerLiteral = "IntegerLiteral",
-        FloatLiteral = "FloatLiteral",
-        StringLiteral = "StringLiteral",
-        Identifier = "Identifier",
-        Opcode = "Opcode",
-        Keyword = "Keyword",
-        Register = "Register",
-        Colon = "Colon",
-        Coma = "Coma",
-        EndOfFile = "EndOfFile",
+        IntegerLiteral,
+        FloatLiteral,
+        StringLiteral,
+        Identifier,
+        Opcode,
+        Keyword,
+        Register,
+        Colon,
+        Coma,
+        EndOfFile,
     }
     class Token {
         range: Range;

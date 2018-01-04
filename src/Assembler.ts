@@ -40,15 +40,18 @@ module wee {
 	}
 
 	export class ParserResult {
-		constructor (public instructions: Array<Instruction>, public labels: StringMap<Label>, public instructionToLabel: IndexedMap<Label>, public diagnostics: Array<Diagnostic>) {};
+		constructor (public instructions: Array<Instruction>, public labels: StringMap<Label>, public diagnostics: Array<Diagnostic>) {};
+	}
+
+	export class AssemblerResult {
+		constructor (public code: Uint8Array, public instructions: Array<Instruction>, public labels: StringMap<Label>, public patches: Array<Patch>, public diagnostics: Array<Diagnostic>) {};
 	}
 
 	export class Assembler {
-		assemble (source: string) {
+		assemble (source: string): AssemblerResult {
 			let tokens = new Tokenizer().tokenize(source);
 			let parserResult = this.parse(tokens);
-			let code = this.emit(parserResult.instructions, parserResult.diagnostics);
-			return code;
+			return this.emit(parserResult.instructions, parserResult.labels, parserResult.diagnostics);
 		}
 
 		parse (tokens: Array<Token>): ParserResult {
@@ -56,7 +59,6 @@ module wee {
 			let diagnostics = new Array<Diagnostic>();
 			let stream = new TokenStream(tokens);
 			var labels: StringMap<Label> = {};
-			var instructionToLabel: IndexedMap<Label> = {};
 
 			while (true) {
 				var token = stream.next();
@@ -81,7 +83,6 @@ module wee {
 					} else {
 						labels[token.value] = label;
 					}
-					instructionToLabel[label.index] = label;
 					continue;
 				}
 
@@ -325,27 +326,39 @@ module wee {
 				break;
 			}
 
-			return new ParserResult(instructions, labels, instructionToLabel, diagnostics);
+			return new ParserResult(instructions, labels, diagnostics);
 		}
 
-		emit (instructions: Array<Instruction>, diagnostics: Array<Diagnostic>): Uint8Array {
+		emit (instructions: Array<Instruction>, labels: StringMap<Label>, diagnostics: Array<Diagnostic>): AssemblerResult {
 			let buffer = new ArrayBuffer(16 * 1024 * 1024);
 			let view = new DataView(buffer);
 			let address = 0;
+			let patches = new Array<Patch>();
 
 			for (var i = 0; i < instructions.length; i++) {
 				let instruction = instructions[i];
-				address = instruction.emit(view, address, diagnostics);
+				address = instruction.emit(view, address, patches, diagnostics);
 			}
 
-			return new Uint8Array(buffer);
+			for (var i = 0; i < patches.length; i++) {
+				let patch = patches[i];
+				let label = labels[patch.label.value];
+				if (label) {
+					let address = instructions[label.instructionIndex].address;
+					view.setUint32(patch.address, address);
+				}
+			}
+
+			return new AssemblerResult(new Uint8Array(buffer), instructions, labels, patches, diagnostics);
 		}
 
 		static getRegisterIndex(reg: Token) {
 			if (reg.type != TokenType.Register) throw new Error(`Unexpected token type ${reg.type}!`);
 			if (reg.value == "pc") return 14;
 			if (reg.value == "sp") return 15;
-			return parseInt((reg.value as string).substr(1));
+			let index = parseInt((reg.value as string).substr(1));
+			if (index < 0 || index > 15) throw new Error("Unknown register name " + reg.value);
+			return index;
 		}
 
 		static encodeOpRegRegReg(op: number, reg1: number, reg2: number, reg3: number) {
@@ -369,14 +382,18 @@ module wee {
 		}
 	}
 
-	class Label {
-		constructor(public token: Token, public index: number) {};
+	export class Patch {
+		constructor (public address: number, public label: Token) {};
 	}
 
-	interface Instruction {
+	export class Label {
+		constructor(public token: Token, public instructionIndex: number) {};
+	}
+
+	export interface Instruction {
 		address: number;
 
-		emit (view: DataView, address: number, diagnostics: Array<Diagnostic>): number;
+		emit (view: DataView, address: number, patches: Array<Patch>, diagnostics: Array<Diagnostic>): number;
 	};
 
 	class Data implements Instruction {
@@ -384,7 +401,7 @@ module wee {
 
 		constructor (public type: Token, public value: Token) {};
 
-		emit (view: DataView, address: number, diagnostics: Array<Diagnostic>): number {
+		emit (view: DataView, address: number, patches: Array<Patch>, diagnostics: Array<Diagnostic>): number {
 			this.address = address;
 
 			if (this.type.value == "byte") {
@@ -428,7 +445,7 @@ module wee {
 
 		constructor (public token: Token) {};
 
-		emit (view: DataView, address: number, diagnostics: Array<Diagnostic>): number {
+		emit (view: DataView, address: number, patches: Array<Patch>, diagnostics: Array<Diagnostic>): number {
 			this.address = address;
 			view.setUint32(address, 0);
 			return address + 4;
@@ -440,7 +457,7 @@ module wee {
 
 		constructor (public operation: Token, public operand1: Token, public operand2: Token, public operand3: Token) {};
 
-		emit (view: DataView, address: number, diagnostics: Array<Diagnostic>): number {
+		emit (view: DataView, address: number, patches: Array<Patch>, diagnostics: Array<Diagnostic>): number {
 			this.address = address;
 
 			let op1 = Assembler.getRegisterIndex(this.operand1);
@@ -483,7 +500,7 @@ module wee {
 
 		constructor (public operation: Token, public operand1: Token, public operand2: Token, public operand3: Token) {};
 
-		emit (view: DataView, address: number, diagnostics: Array<Diagnostic>): number {
+		emit (view: DataView, address: number, patches: Array<Patch>, diagnostics: Array<Diagnostic>): number {
 			this.address = address;
 
 			let op1 = Assembler.getRegisterIndex(this.operand1);
@@ -511,7 +528,7 @@ module wee {
 
 		constructor (public branchType: Token, public operand1: Token, public operand2: Token) {};
 
-		emit (view: DataView, address: number, diagnostics: Array<Diagnostic>): number {
+		emit (view: DataView, address: number, patches: Array<Patch>, diagnostics: Array<Diagnostic>): number {
 			this.address = address;
 
 			if (this.branchType.value == "jump") {
@@ -521,20 +538,13 @@ module wee {
 				if (this.operand1.type == TokenType.IntegerLiteral) {
 					view.setUint32(address, this.operand1.value as number);
 				} else {
-					// BOZO patch
 					view.setUint32(address, 0xdeadbeaf);
+					patches.push(new Patch(address, this.operand1));
 				}
 				return address + 4;
 			} else {
 				let op1 = Assembler.getRegisterIndex(this.operand1);
 				let opcode = 0;
-				let targetAddress = 0;
-				if (this.operand2.type == TokenType.IntegerLiteral) {
-					targetAddress = this.operand2.value as number;
-				} else {
-					// BOZO patch
-					targetAddress = 0xdeadbeaf;
-				}
 
 				if (this.branchType.value == "jump_equal") opcode = 0x1d;
 				else if (this.branchType.value == "jump_not_equal") opcode = 0x1e;
@@ -546,7 +556,16 @@ module wee {
 					diagnostics.push(new Diagnostic(Severity.Error, this.branchType.range, `Unknown jump/branch instruction ${this.branchType.value}`));
 					return address;
 				}
-				view.setUint32(address, Assembler.encodeOpRegNum(opcode, op1, targetAddress));
+
+				view.setUint32(address, Assembler.encodeOpRegNum(opcode, op1, 0));
+				address += 4;
+
+				if (this.operand2.type == TokenType.IntegerLiteral) {
+					view.setUint32(address, this.operand2.value as number);
+				} else {
+					view.setUint32(address, 0xdeadbeaf);
+					patches.push(new Patch(address, this.operand2));
+				}
 				return address + 4;
 			}
 		}
@@ -555,11 +574,100 @@ module wee {
 	class MemoryInstruction implements Instruction {
 		address: number;
 
-		constructor (public operation: Token, operand1: Token, public operand2: Token, public operand3: Token) {};
+		constructor (public operation: Token, public operand1: Token, public operand2: Token, public operand3: Token) {};
 
-		emit (view: DataView, address: number, diagnostics: Array<Diagnostic>): number {
+		emit (view: DataView, address: number, patches: Array<Patch>, diagnostics: Array<Diagnostic>): number {
 			this.address = address;
-			return 0;
+
+			if (this.operation.value == "move") {
+				let op2 = Assembler.getRegisterIndex(this.operand2);
+
+				if (this.operand1.type == TokenType.Register) {
+					let op1 = Assembler.getRegisterIndex(this.operand1);
+					view.setUint32(address, Assembler.encodeOpRegRegNum(0x23, op1, op2, 0));
+				} else if (this.operand1.type == TokenType.IntegerLiteral) {
+					let op1 = this.operand1.value as number;
+					view.setUint32(address, Assembler.encodeOpRegRegNum(0x24, 0, op2, 0));
+					address += 4;
+					view.setUint32(address, op1);
+				} else if (this.operand1.type == TokenType.FloatLiteral) {
+					let op1 = this.operand1.value as number;
+					view.setUint32(address, Assembler.encodeOpRegRegNum(0x24, 0, op2, 0));
+					address += 4;
+					view.setFloat32(address, op1);
+				} else if (this.operand1.type == TokenType.Identifier) {
+					view.setUint32(address, Assembler.encodeOpRegRegNum(0x24, 0, op2, 0));
+					address += 4;
+					view.setUint32(address, 0xdeadbeaf);
+					patches.push(new Patch(address, this.operand1));
+				} else {
+					diagnostics.push(new Diagnostic(Severity.Error, this.operation.range, `Memory instruction ${this.operation.value} only operates on registers, float literals, integer litaterals or labels`));
+					return address;
+				}
+			} else if (this.operation.value == "load" || this.operation.value == "load_byte" || this.operation.value == "load_short") {
+				let offset = this.operand2.value as number;
+				let op2 = Assembler.getRegisterIndex(this.operand3);
+				if (this.operand1.type == TokenType.Register) {
+					let op1 = Assembler.getRegisterIndex(this.operand1);
+					let opcode = 0;
+					if (this.operation.value == "load") opcode = 0x26;
+					else if (this.operation.value == "load_byte") opcode = 0x2a;
+					else if (this.operation.value == "load_short") opcode = 0x2e;
+					view.setUint32(address, Assembler.encodeOpRegRegNum(opcode, op1, op2, offset));
+				} else if (this.operand1.type == TokenType.IntegerLiteral || this.operand1.type == TokenType.Identifier) {
+					let opcode = 0;
+					if (this.operation.value == "load") opcode = 0x25;
+					else if (this.operation.value == "load_byte") opcode = 0x29;
+					else if (this.operation.value == "load_short") opcode = 0x2d;
+					view.setUint32(address, Assembler.encodeOpRegRegNum(opcode, 0, op2, offset));
+					address += 4;
+
+					if (this.operand1.type == TokenType.IntegerLiteral) {
+						let op1 = this.operand1.value as number;
+						view.setUint32(address, op1);
+					} else {
+						view.setUint32(address, 0xdeadbeaf);
+						patches.push(new Patch(address, this.operand1));
+					}
+				} else {
+					diagnostics.push(new Diagnostic(Severity.Error, this.operation.range, `Memory instruction ${this.operation.value} only operates on registers, integer litaterals or labels`));
+					return address;
+				}
+			} else if (this.operation.value == "store" || this.operation.value == "store_byte" || this.operation.value == "store_short") {
+				let offset = this.operand3.value as number;
+				let op1 = Assembler.getRegisterIndex(this.operand1);
+				if (this.operand2.type == TokenType.Register) {
+					let op2 = Assembler.getRegisterIndex(this.operand2);
+					let opcode = 0;
+					if (this.operation.value == "store") opcode = 0x28;
+					else if (this.operation.value == "store_byte") opcode = 0x2c;
+					else if (this.operation.value == "store_short") opcode = 0x30;
+					view.setUint32(address, Assembler.encodeOpRegRegNum(opcode, op1, op2, offset));
+				} else if (this.operand2.type == TokenType.IntegerLiteral || this.operand2.type == TokenType.Identifier) {
+					let opcode = 0;
+					if (this.operation.value == "store") opcode = 0x27;
+					else if (this.operation.value == "store_byte") opcode = 0x2b;
+					else if (this.operation.value == "store_short") opcode = 0x2f;
+					view.setUint32(address, Assembler.encodeOpRegRegNum(opcode, op1, 0, offset));
+					address += 4;
+
+					if (this.operand2.type == TokenType.IntegerLiteral) {
+						let op2 = this.operand2.value as number;
+						view.setUint32(address, op2);
+					} else {
+						view.setUint32(address, 0xdeadbeaf);
+						patches.push(new Patch(address, this.operand2));
+					}
+				} else {
+					diagnostics.push(new Diagnostic(Severity.Error, this.operation.range, `Memory instruction ${this.operation.value} only operates on registers, integer litaterals or labels`));
+					return address;
+				}
+			} else {
+				diagnostics.push(new Diagnostic(Severity.Error, this.operation.range, `Unknown memory instruction ${this.operation.value}.`));
+				return address;
+			}
+
+			return address + 4;
 		}
 	}
 
@@ -568,7 +676,7 @@ module wee {
 
 		constructor (public operation: Token, public operand1: Token) {};
 
-		emit (view: DataView, address: number, diagnostics: Array<Diagnostic>): number {
+		emit (view: DataView, address: number, patches: Array<Patch>, diagnostics: Array<Diagnostic>): number {
 			this.address = address;
 
 			if (this.operation.value == "push") {
@@ -584,10 +692,10 @@ module wee {
 					address += 4;
 					view.setFloat32(address, this.operand1.value as number);
 				} else if (this.operand1.type == TokenType.Identifier) {
-					// BOZO patch
 					view.setUint32(address, Assembler.encodeOpRegNum(0x31, 0, 0));
 					address += 4;
 					view.setUint32(address, 0xdeadbeaf);
+					patches.push(new Patch(address, this.operand1));
 				}
 			} else if (this.operation.value == "stackalloc") {
 				view.setUint32(address, Assembler.encodeOpRegNum(0x33, 0, this.operand1.value as number));
@@ -611,10 +719,10 @@ module wee {
 					address += 4;
 					view.setFloat32(address, this.operand1.value as number);
 				} else if (this.operand1.type == TokenType.Identifier) {
-					// BOZO patch
 					view.setUint32(address, Assembler.encodeOpRegNum(0x36, 0, 0));
 					address += 4;
 					view.setUint32(address, 0xdeadbeaf);
+					patches.push(new Patch(address, this.operand1));
 				}
 			} else if (this.operation.value == "return") {
 				view.setUint32(address, Assembler.encodeOpRegNum(0x38, 0, this.operand1.value as number));
@@ -632,7 +740,7 @@ module wee {
 
 		constructor (public operation: Token, public operand1: Token, public operand2: Token) {};
 
-		emit (view: DataView, address: number, diagnostics: Array<Diagnostic>): number {
+		emit (view: DataView, address: number, patches: Array<Patch>, diagnostics: Array<Diagnostic>): number {
 			this.address = address;
 
 			if (this.operation.value == "port_write") {
@@ -644,16 +752,16 @@ module wee {
 					} else if (this.operand1.type == TokenType.IntegerLiteral) {
 						view.setUint32(address, Assembler.encodeOpRegRegNum(0x3a, 0, 0, portNumber));
 						address += 4;
-						view.setUint32(address, this.operand2.value as number);
+						view.setUint32(address, this.operand1.value as number);
 					} else if (this.operand1.type == TokenType.FloatLiteral) {
 						view.setUint32(address, Assembler.encodeOpRegRegNum(0x3a, 0, 0, portNumber));
 						address += 4;
-						view.setFloat32(address, this.operand2.value as number);
+						view.setFloat32(address, this.operand1.value as number);
 					} else if (this.operand1.type == TokenType.Identifier) {
-						// BOZO patch
 						view.setUint32(address, Assembler.encodeOpRegRegNum(0x3a, 0, 0, portNumber));
 						address += 4;
 						view.setUint32(address, 0xdeadbeaf);
+						patches.push(new Patch(address, this.operand1));
 					}
 				} else {
 					let register1 = Assembler.getRegisterIndex(this.operand1);

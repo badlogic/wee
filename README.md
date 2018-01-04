@@ -94,23 +94,23 @@ The following instructions are supported:
 
 #### Jumps & Branching
 Wee Machine supports a variety of jumps, either directly or based on the result of a `cmp` or `fcmp`
-instruction. All jump target addresses, except for `jmp`, are relative to the jump instruction's address, and are encoded in the instruction. Jump instructions have the following format:
+instruction. All jump target addresses are absolute. Jump instructions have the following format:
 
 | bits 0-5 | bits 6-9 | bits 10-31 | bits 32-64 |
 | -------- | -------- | --------  | -------- |
-| Opcode   | Register (op1) | Target address | word2
+| Opcode   | Register (op1) | Unused | word2
 
 The following instructions are supported:
 
 | Opcode | Assembly | Semantics |
 | ------ | -------- | --------- |
 | 0x1c   | `jump word2` | Jumps to the specified address in `word2` |
-| 0x1d   | `jump_equal op1, <target address>` | Jumps to the specified address if the operands of the comparison, the result of which is stored in `op1`, were equal |
-| 0x1e   | `jump_not_equal op1, <target address>` | Jumps to the specified address if the operands of the comparison, the result of which is stored in `op1`, were not equal |
-| 0x1f   | `jump_less op1, <target address>` | Jumps to the specified address if the first operand of the comparison, the result of which is stored in `op1`, was less than the second operand |
-| 0x20   | `jump_greater op1, <target address>` | Jumps to the specified address if the first operand of the comparison, the result of which is stored in `op1`, was greater than the second operand |
-| 0x21   | `jump_less_equal op1, <target address>` | Jumps to the specified address if the first operand of the comparison, the result of which is stored in `op1`, was less or equal to the second operand |
-| 0x22   | `jump_greater_equal op1, <target address>` | Jumps to the specified address if the first operand of the comparison, the result of which is stored in `op1`, was greater or equal to the second operand |
+| 0x1d   | `jump_equal op1, word2` | Jumps to the specified relative address in `word2` if the operands of the comparison, the result of which is stored in `op1`, were equal |
+| 0x1e   | `jump_not_equal op1, word2` | Jumps to the specified relative address in `word2` if the operands of the comparison, the result of which is stored in `op1`, were not equal |
+| 0x1f   | `jump_less op1, word2` | Jumps to the specified relative address in `word2` if the first operand of the comparison, the result of which is stored in `op1`, was less than the second operand |
+| 0x20   | `jump_greater op1, word2` | Jumps to the specified relative address in `word2` if the first operand of the comparison, the result of which is stored in `op1`, was greater than the second operand |
+| 0x21   | `jump_less_equal op1, word2` | Jumps to the specified relative address in `word2` if the first operand of the comparison, the result of which is stored in `op1`, was less or equal to the second operand |
+| 0x22   | `jump_greater_equal op1, word2` | Jumps to the specified relative address in `word2` if the first operand of the comparison, the result of which is stored in `op1`, was greater or equal to the second operand |
 
 #### Memory operations
 Wee Machine has 16 megabytes of byte-addressable memory in which both code and data are stored, plus 16 registers that can hold data and addresses. Wee Machine provides instructions to load and store data from and to registers and memory.
@@ -119,25 +119,25 @@ Memory operations can be 1 or 2 words wide. 2-word memory operations encode a 32
 
 | bits 0-5 | bits 6-9 | bits 10-13 | bits 14-31 | bits 32-63 |
 | -------- | -------- | --------  | ---------- | ---------- |
-| Opcode   | Register (op1) | Register (op2) | Offset in bytes (offset) | Value (word2)
+| Opcode   | Register (op1) | Register (op2) | Offset in bytes (offset) | Value (word)
 
 The following memory operations are available:
 
 | Opcode | Assembly | Semantics |
 | ------ | -------- | --------- |
 | 0x23   | `move op1, op2` | Copies the value in `op1` to `op2` |
-| 0x24   | `move word, op2` | Copies the 32-bit value in `word2` to `op2` |
-| 0x25   | `load word2, offset, op1` | Reads the 32-bit value at address `word2` + `offset` from memory and stores it in `op1` |
-| 0x26   | `load op1, offset, op1` | Reads the 32-bit value at address `op1` + `offset` from memory and stores it in `op2` |
-| 0x27   | `store op1, word2, offset` | Writes the 32-bit value in `op1` to memory at address `word2` + `offset` |
+| 0x24   | `move word, op2` | Copies the 32-bit value in `word` to `op2` |
+| 0x25   | `load word, offset, op2` | Reads the 32-bit value at address `word` + `offset` from memory and stores it in `op2` |
+| 0x26   | `load op1, offset, op2` | Reads the 32-bit value at address `op1` + `offset` from memory and stores it in `op2` |
+| 0x27   | `store op1, word, offset` | Writes the 32-bit value in `op1` to memory at address `word` + `offset` |
 | 0x28   | `store op1, op2, offset` | Writes the 32-bit value in `op1` to memory at address `op2` + `offset` |
-| 0x29   | `load_byte word2, offset, op1` | Reads the 8-bit value at address `word2` + `offset` from memory and stores it in `op1` |
-| 0x2a   | `load_byte op1, offset, op1` | Reads the 8-bit value at address `op1` + `offset` from memory and stores it in `op2` |
-| 0x2b   | `store_byte op1, word2, offset` | Writes the lowest 8 bits in `op1` to memory at address `word2` + `offset` |
+| 0x29   | `load_byte word, offset, op2` | Reads the 8-bit value at address `word` + `offset` from memory and stores it in `op1` |
+| 0x2a   | `load_byte op1, offset, op2` | Reads the 8-bit value at address `op1` + `offset` from memory and stores it in `op2` |
+| 0x2b   | `store_byte op1, word, offset` | Writes the lowest 8 bits in `op1` to memory at address `word` + `offset` |
 | 0x2c   | `store_byte op1, op2, offset` | Writes the lowest 8 bits in `op1` to memory at address `op2` + `offset` |
-| 0x2d   | `load_short word2, offset, op1` | Reads the 16-bit value at address `word2` + `offset` from memory and stores it in `op1` |
-| 0x2e   | `load_short op1, offset, op1` | Reads the 16-bit value at address `op1` + `offset` from memory and stores it in `op2` |
-| 0x2f   | `store_short op1, word2, offset` | Writes the lowest 16 bits in `op1` to memory at address `word2` + `offset` |
+| 0x2d   | `load_short word, offset, op2` | Reads the 16-bit value at address `word` + `offset` from memory and stores it in `op1` |
+| 0x2e   | `load_short op1, offset, op2` | Reads the 16-bit value at address `op1` + `offset` from memory and stores it in `op2` |
+| 0x2f   | `store_short op1, word, offset` | Writes the lowest 16 bits in `op1` to memory at address `word` + `offset` |
 | 0x30   | `store_short op1, op2, offset` | Writes the lowest 16 bits in `op1` to memory at address `op2` + `offset` |
 
 #### Stack & Call Operations
