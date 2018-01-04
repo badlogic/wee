@@ -196,6 +196,10 @@ The following port operations are available:
 | 0x3c   | `port_read <port number>, op1` | Read the 32-bit value from port `<port number>` and store it in `op1`. The operation may block until the peripheral has completed its work. |
 | 0x3d   | `port_read op1, op2` | Read the 32-bit value from port `op1` and store it in `op2`. The operation may block until the peripheral has completed its work. |
 
+### Unused opcodes
+All opcodes are encoded in the first 6 bits of an instruction. The instruction set ocupies opcodes `0x00` to `0x3d`, leaving
+only opcode `0x3f` unused. This opcode may be used in the future and is reserved.
+
 ### Peripherals
 Wee Machine simulates a system with a keyboard, mouse, graphics card, sound card and networking card. These peripherals are heavily simplified to make working with them simple enough for beginners. The following sections describe the peripheral capabilities and their respective port protocols.
 
